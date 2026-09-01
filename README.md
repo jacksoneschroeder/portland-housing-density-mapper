@@ -6,7 +6,7 @@ the scripts below only matter if you want to regenerate that data from scratch.
 
 ## Running it locally
 
-Just serve the repo root over HTTP and open `portland-housing-density-mapper.html` - e.g.:
+Just serve the repo root over HTTP and open `index.html` - e.g.:
 
 ```
 python3 -m http.server 8000

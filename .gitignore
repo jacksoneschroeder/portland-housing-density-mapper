@@ -1,6 +1,6 @@
 .claude/
 
-# This repo tracks portland-housing-density-mapper.html, the scripts/ that build its data, and the small
+# This repo tracks index.html, the scripts/ that build its data, and the small
 # generated runtime-data/ files the app fetches at runtime - but not the raw taxlot_density_data.json
 # specifically: at ~300MB it's over both GitHub's 100MB hard per-file limit AND Cloudflare Workers' 25MiB
 # static-asset limit, so it can't go through a normal git push/deploy at all. Its gzip-compressed sibling
