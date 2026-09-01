@@ -1,0 +1,17 @@
+{
+  "ripSixplexMinSqft": { "R20": 12000, "R10": 6000, "R7": 4200, "R5": 3000, "R2.5": 1500 },
+  "cottageClusterMinSqft": { "R10": 7000, "R7": 7000, "R5": 5000, "R2.5": 5000 },
+  "cottageClusterMaxSqft": 43560,
+  "cottageClusterMaxUnits": 16,
+  "cottageClusterSqftPerUnit": 1000,
+  "rmpUnitsPerAcre": 29,
+  "noCapZones": ["RM1", "RM2", "RM3", "RM4", "RX"],
+  "residentialMetroPrefixes": ["SFR", "MFR", "MUR"],
+  "residentialPortlandZones": ["RF", "R20", "R10", "R7", "R5", "R2.5", "RM1", "RM2", "RM3", "RM4", "RX", "RMP", "CR", "CM1", "CM2", "CM3", "CE", "CX"],
+  "zoneClassDensity": {
+    "SFR1": 4, "SFR2": 8, "SFR3": 14,
+    "MFR1": 27, "MFR2": 36, "MFR3": 60, "MFR4": 80, "MFR5": 120, "MFR6": 218, "MFR7": 450,
+    "MUR1": 26, "MUR1z": 26, "MUR2": 34, "MUR2z": 34, "MUR3": 57, "MUR3z": 57, "MUR4": 76, "MUR4z": 76,
+    "MUR5": 114, "MUR5z": 114, "MUR6": 207, "MUR6z": 207, "MUR7": 428, "MUR7z": 428
+  }
+}

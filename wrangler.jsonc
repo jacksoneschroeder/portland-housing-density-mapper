@@ -1,0 +1,20 @@
+{
+  "name": "portland-housing-density-mapper",
+  "compatibility_date": "2026-07-31",
+  "main": "./workers/density-mapper-worker.js",
+  "build": {
+    "command": "bash scripts/stage_deploy_assets.sh"
+  },
+  "assets": {
+    "directory": "./dist_assets",
+    "run_worker_first": ["/taxlot-data"]
+  },
+  // Same R2 bucket the TOD-PITCH repo's own Worker binds to - shared, read-only from here, not duplicated.
+  // R2 buckets can be bound to more than one Worker, so there's no need for a second bucket or a data copy.
+  "r2_buckets": [
+    {
+      "binding": "TAXLOT_DATA_BUCKET",
+      "bucket_name": "tod-pitch-data"
+    }
+  ]
+}

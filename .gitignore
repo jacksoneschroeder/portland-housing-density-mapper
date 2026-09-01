@@ -1,0 +1,32 @@
+.claude/
+
+# This repo tracks portland-housing-density-mapper.html, the scripts/ that build its data, and the small
+# generated runtime-data/ files the app fetches at runtime - but not the raw taxlot_density_data.json
+# specifically: at ~300MB it's over both GitHub's 100MB hard per-file limit AND Cloudflare Workers' 25MiB
+# static-asset limit, so it can't go through a normal git push/deploy at all. Its gzip-compressed sibling
+# (.json.gz - see build_taxlot_dataset.py) IS tracked, though: small enough for a normal git push, and having
+# it in the repo means anyone who just clones this can run the app locally without needing R2 access at all.
+# It's still excluded from the deployed site itself, though - production always goes through the Worker + R2
+# binding instead (see workers/density-mapper-worker.js).
+runtime-data/taxlot_density_data.json
+
+# Build checkpoints - crash-recovery debris, never meant to be kept
+taxlot_features_checkpoint*.json*
+zoning_features_checkpoint.json
+taxlot_addresses_checkpoint.json
+taxlot_housing_units_checkpoint.json
+portland_rip_zoning_checkpoint.json
+portland_rip_assessor_checkpoint.json
+census_tracts_checkpoint.json
+census_blocks_checkpoint.json
+
+# Python bytecode cache - regenerated locally whenever a script's run, never meant to be tracked
+__pycache__/
+
+# Regenerated fresh by scripts/stage_deploy_assets.sh on every deploy (see wrangler.jsonc's own
+# build.command) - never hand-edited, never meant to be committed.
+dist_assets/
+
+# Wrangler's own local cache/logs/temp state (auth tokens, local R2/D1 simulator data) - machine-local, never
+# meant to be committed.
+.wrangler/

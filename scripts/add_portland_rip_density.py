@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+# One-time enrichment: adds Portland's own real zoning code (portlandZoneClass, e.g. "R5"/"R2.5" - Metro's
+# zoneClass/zoneGenClass fields are a REGIONAL generalized classification, not Portland's native zone codes),
+# real assessor lot square footage (sqft, falling back to acres*43560 only when the assessor has no record
+# for that taxlot - see this script's own "unmatched" count), and a Residential Infill Project (RIP) existing-
+# max-density figure (ripMaxUnits) to every Portland taxlot already classified residential (SFR1/2/3, MFR3-6)
+# by Metro's own join in build_taxlot_dataset.py. Scoped to Portland only (not the whole 3-county region) -
+# RIP is a Portland City Code program (Chapter 33.110), not a regional one, and MUR (mixed-use) taxlots are
+# out of scope too - RIP's minimum-lot-size table (see RIP_SIXPLEX_MIN_SQFT/COTTAGE_CLUSTER_MIN_SQFT below)
+# only ever applies to Portland's single-dwelling R20/R10/R7/R5/R2.5 zones, which is exactly what SFR/MFR
+# taxlots are already zoned under - MUR covers separate mixed-use zone codes (RX/CM/etc.) governed by an
+# entirely different code chapter.
+#
+# portlandZoneClass: point-in-polygon join against the City of Portland's own zoning layer
+# (COP_OpenData_ZoningCode/MapServer/16, field ZONE) - confirmed via direct inspection to carry real distinct
+# codes (R2.5/R5/R7/R10/R20/RM1-4/RMP/RX/commercial codes/etc.), not Metro's generalized buckets. Reuses the
+# exact same point_in_polygon/grid_cells_for_bbox spatial-index approach build_taxlot_dataset.py already uses
+# for Metro's own zoning join - same algorithm, different (Portland-specific) polygon source.
+#
+# sqft: real assessor square footage from Portland's own taxlot/assessor layer (Public/Taxlots/MapServer/0,
+# field A_T_SQFT), joined directly by TLID - confirmed empirically (5/5 real samples checked byte-for-byte)
+# that this dataset's own TLID field ALREADY matches that service's TLID format exactly, no normalization
+# needed (an earlier note in this project's own history flagged a format mismatch - Metro's compact
+# "21E35BB01800" vs this service's padded "1N1E34CC  -02000" - that mismatch no longer exists as of whatever
+# rebuild most recently regenerated this dataset). Falls back to acres*43560 only for the taxlots the
+# assessor never recorded (a real, expected data-quality gap - not every taxlot has a full assessor record).
+#
+# ripMaxUnits: the MAXIMUM units a taxlot could support if redeveloped under any ONE Residential Infill
+# Project housing type it qualifies for (by portlandZoneClass + sqft) - "take the max available" per the
+# user's own framing. Two tiers, both straight from the real RIP minimum-lot-size-by-housing-type-and-zone
+# table and the real Cottage Cluster code text (Portland City Code 33.110.265.G):
+#   1. A flat 2-unit floor (duplex/detached duplex - "No minimum" lot size, always available), rising to 6
+#      units (Affordable 4-/5-/6-plex) once the site clears RIP_SIXPLEX_MIN_SQFT for its own zone.
+#   2. Cottage Cluster: min(floor(sqft / 500), 16) once the site falls within COTTAGE_CLUSTER_MIN_SQFT/MAX_SQFT
+#      for its own zone - 500 sq ft/unit is a deliberately low (dense) assumed footprint (real code text has
+#      no stated MINIMUM unit size, only maximums - see this script's own git history/PR discussion), so this
+#      one output is a genuine "how many could conceivably fit" ceiling, not a typical/expected count.
+# The real max ends up being whichever of the two is larger - cottage cluster wins on any site big enough to
+# qualify for it at all, in every zone (see the git history's own worked examples), so the fixed 2/6-unit
+# tier is really only ever the binding one below cottage cluster's own minimum site size.
+#
+# Run with: python3 scripts/add_portland_rip_density.py
+# Reads/writes: runtime-data/taxlot_density_data.json (+ .gz)
+
+import json
+import os
+import time
+import urllib.parse
+
+from build_taxlot_dataset import (
+    RUNTIME_DATA_DIR, NON_ESSENTIAL_DATA_DIR, post_query, point_in_polygon,
+    grid_cells_for_bbox, GRID_SIZE, load_taxlot_dataset, write_taxlot_dataset,
+)
+
+PORTLAND_ZONING_URL = 'https://www.portlandmaps.com/od/rest/services/COP_OpenData_ZoningCode/MapServer/16/query'
+PORTLAND_ASSESSOR_URL = 'https://www.portlandmaps.com/arcgis/rest/services/Public/Taxlots/MapServer/0/query'
+TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+ZONING_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_zoning_checkpoint.json')
+ASSESSOR_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_assessor_checkpoint.json')
+
+RESIDENTIAL_ZONE_CLASSES = {'SFR1', 'SFR2', 'SFR3', 'MFR3', 'MFR4', 'MFR5', 'MFR6'}
+ASSESSOR_BATCH_SIZE = 1000
+
+# --- Real RIP minimum-lot-size-by-housing-type-and-zone figures (see this script's own header comment) ---
+# "Affordable 4-, 5-, or 6-plex" - take the max (6) available at that same lot-of-record threshold.
+RIP_SIXPLEX_MIN_SQFT = {'R20': 12000, 'R10': 6000, 'R7': 4200, 'R5': 3000, 'R2.5': 1500}
+# Cottage Cluster: real min/max site area straight from Portland City Code 33.110.265.G.1-2. R20 excluded
+# (cottage clusters aren't a legal option there at all - "n/a" in the real minimum-lot-size table).
+COTTAGE_CLUSTER_MIN_SQFT = {'R10': 7000, 'R7': 7000, 'R5': 5000, 'R2.5': 5000}
+COTTAGE_CLUSTER_MAX_SQFT = 43560
+COTTAGE_CLUSTER_SQFT_PER_UNIT = 500
+COTTAGE_CLUSTER_MAX_UNITS = 16
+
+
+def rip_max_units(zone, sqft):
+    if zone not in RIP_SIXPLEX_MIN_SQFT or sqft is None:
+        return None  # Not one of the 5 single-dwelling zones this table covers, or no real sqft to test against
+    best = 2  # Duplex/detached duplex - "No minimum" lot size, always available
+    if sqft >= RIP_SIXPLEX_MIN_SQFT[zone]:
+        best = max(best, 6)
+    cc_min = COTTAGE_CLUSTER_MIN_SQFT.get(zone)
+    if cc_min is not None and cc_min <= sqft <= COTTAGE_CLUSTER_MAX_SQFT:
+        cc_units = min(int(sqft // COTTAGE_CLUSTER_SQFT_PER_UNIT), COTTAGE_CLUSTER_MAX_UNITS)
+        best = max(best, cc_units)
+    return best
+
+
+def fetch_portland_zoning_features():
+    # Resumable the same way fetch_all_features (build_taxlot_dataset.py) is: a checkpoint's own length IS the
+    # next resultOffset to ask for, since ArcGIS pagination is deterministic - this only works correctly
+    # because every page (including a possibly-still-partial one) is checkpointed as it arrives (see below),
+    # not just once at the very end.
+    features = []
+    if os.path.exists(ZONING_CHECKPOINT_PATH):
+        with open(ZONING_CHECKPOINT_PATH) as f:
+            features = json.load(f)
+        print('  resuming from checkpoint: %d zoning features already fetched' % len(features))
+    offset = len(features)
+    page_size = 200  # This layer's own maxRecordCount - see this script's own git history for the empirical check
+    while True:
+        params = {
+            'where': '1=1', 'outFields': 'ZONE', 'outSR': '4326', 'returnGeometry': 'true',
+            'resultOffset': offset, 'resultRecordCount': page_size, 'f': 'json',
+        }
+        body = post_query(PORTLAND_ZONING_URL, params)
+        page = body.get('features', [])
+        features.extend(page)
+        print('  fetched zoning page at offset %d: %d features (total %d)' % (offset, len(page), len(features)))
+        # Checkpointed every page, not just once at the end - this service returned real 503s ("wait timeout")
+        # mid-fetch the first time this ran, and post_query's own retry budget isn't infinite; without this,
+        # a crash past retry exhaustion loses every page already fetched instead of just the one in flight.
+        with open(ZONING_CHECKPOINT_PATH, 'w') as f:
+            json.dump(features, f)
+        if len(page) < page_size:
+            break
+        offset += len(page)
+        time.sleep(0.2)
+        time.sleep(0.1)
+    with open(ZONING_CHECKPOINT_PATH, 'w') as f:
+        json.dump(features, f)
+    return features
+
+
+def fetch_assessor_batch(tlids):
+    where = 'TLID IN (' + ','.join("'" + t.replace("'", "''") + "'" for t in tlids) + ')'
+    body = post_query(PORTLAND_ASSESSOR_URL, {
+        'where': where, 'outFields': 'TLID,A_T_SQFT', 'f': 'json',
+    })
+    result = {}
+    for f in body.get('features', []):
+        sqft = f['attributes'].get('A_T_SQFT')
+        if sqft:
+            result[f['attributes']['TLID']] = sqft
+    return result
+
+
+def main():
+    print('Loading existing taxlot dataset...')
+    taxlots = load_taxlot_dataset(TAXLOT_DATASET_PATH)
+    print('  %d taxlots total' % len(taxlots))
+
+    portland_res = [t for t in taxlots if t.get('city') == 'PORTLAND' and t.get('zoneClass') in RESIDENTIAL_ZONE_CLASSES]
+    print('  %d Portland residential taxlots in scope' % len(portland_res))
+
+    print('Fetching Portland zoning polygons...')
+    zoning_features = fetch_portland_zoning_features()
+    print('  %d zoning polygons' % len(zoning_features))
+
+    print('Building spatial index over zoning polygons...')
+    grid = {}
+    for zf in zoning_features:
+        geom = zf.get('geometry')
+        if not geom or not geom.get('rings'):
+            continue
+        xs = [pt[0] for ring in geom['rings'] for pt in ring]
+        ys = [pt[1] for ring in geom['rings'] for pt in ring]
+        zf['_bbox'] = (min(xs), min(ys), max(xs), max(ys))
+        for cell in grid_cells_for_bbox(zf['_bbox'], GRID_SIZE):
+            grid.setdefault(cell, []).append(zf)
+
+    print('Joining each taxlot to its real Portland zone code...')
+    unmatched_zone = 0
+    for i, t in enumerate(portland_res):
+        lng, lat = t['lng'], t['lat']
+        cell = (int(lng // GRID_SIZE), int(lat // GRID_SIZE))
+        zone = None
+        for zf in grid.get(cell, []):
+            bx0, by0, bx1, by1 = zf['_bbox']
+            if lng < bx0 or lng > bx1 or lat < by0 or lat > by1:
+                continue
+            if point_in_polygon(lng, lat, zf['geometry']['rings']):
+                zone = zf['attributes']['ZONE']
+                break
+        t['portlandZoneClass'] = zone
+        if zone is None:
+            unmatched_zone += 1
+        if (i + 1) % 40000 == 0:
+            print('  joined %d / %d' % (i + 1, len(portland_res)))
+    print('  unmatched (no zoning polygon found): %d / %d' % (unmatched_zone, len(portland_res)))
+
+    print('Fetching real assessor square footage...')
+    sqft_by_tlid = {}
+    start_batch = 0
+    if os.path.exists(ASSESSOR_CHECKPOINT_PATH):
+        with open(ASSESSOR_CHECKPOINT_PATH) as f:
+            saved = json.load(f)
+        sqft_by_tlid = saved['sqft_by_tlid']
+        start_batch = saved['completed_batches']
+        print('  resuming from checkpoint: %d batches already fetched, %d real sqft values found so far' % (start_batch, len(sqft_by_tlid)))
+
+    tlids = [t['tlid'] for t in portland_res]
+    batches = [tlids[i:i + ASSESSOR_BATCH_SIZE] for i in range(0, len(tlids), ASSESSOR_BATCH_SIZE)]
+    for i in range(start_batch, len(batches)):
+        batch_result = fetch_assessor_batch(batches[i])
+        sqft_by_tlid.update(batch_result)
+        if (i + 1) % 10 == 0 or i + 1 == len(batches):
+            print('  batch %d/%d (%d real sqft values found so far)' % (i + 1, len(batches), len(sqft_by_tlid)))
+            with open(ASSESSOR_CHECKPOINT_PATH, 'w') as f:
+                json.dump({'completed_batches': i + 1, 'sqft_by_tlid': sqft_by_tlid}, f)
+        time.sleep(0.05)
+
+    print('Computing real sqft (assessor value, or acres*43560 fallback) and RIP max units...')
+    real_sqft_count = 0
+    for t in portland_res:
+        real = sqft_by_tlid.get(t['tlid'])
+        if real:
+            t['sqft'] = real
+            real_sqft_count += 1
+        else:
+            t['sqft'] = round(t['acres'] * 43560, 1)
+        t['ripMaxUnits'] = rip_max_units(t.get('portlandZoneClass'), t['sqft'])
+    print('  %d / %d taxlots got a real assessor sqft value (rest fell back to acres*43560)' % (real_sqft_count, len(portland_res)))
+
+    print('Writing updated taxlot dataset...')
+    write_taxlot_dataset(taxlots, TAXLOT_DATASET_PATH)
+
+
+if __name__ == '__main__':
+    main()

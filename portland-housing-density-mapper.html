@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <!-- Bootstrap value only - the tab needs some title before the script at the bottom of this file runs. APP_TITLE there is the real source of truth and overwrites this on load; keep both in sync if this ever changes. -->
+    <title>Portland Housing Density Mapper</title>
+    <link rel="icon" type="image/png" href="Density%20favicon.png?v=1788229005">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"/>
+    <style>
+        /* Every font size anywhere in this app - including the canvas-drawn download image, which reads these same values back via getComputedStyle rather than keeping its own copies (see FONT_BODY_PX/FONT_SMALL_PX below). */
+        :root { --font-title: 18px; --font-body: 14px; --font-small: 12px; }
+        body { margin: 0; height: 100%; background: #efefef; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+        html, #app { height: 100%; }
+        #app { display: flex; }
+
+        #sidebar { width: 260px; flex: none; padding: 14px; overflow-y: auto; font-size: var(--font-body); color: #333; }
+        #sidebar h1 { font-size: var(--font-title); margin: 0 0 16px; }
+        #sidebar h2 { font-size: var(--font-small); text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 16px 0 6px; }
+        #sidebar h2:first-of-type { margin-top: 0; }
+        #sidebar p { font-size: var(--font-body); color: #888; margin: 20px 0 0; }
+        #sidebar label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+        #sidebar input[type=radio], #sidebar input[type=checkbox] { font-size: var(--font-body); }
+        #sidebar button { width: 100%; padding: 8px; font-size: var(--font-body); cursor: pointer; }
+        #sidebar hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+        #sidebar button.density-link { width: auto; padding: 0; background: none; border: none; font: inherit; color: #06c; text-decoration: underline; cursor: pointer; }
+        #sidebar button.density-link:hover { color: #04c; }
+        .threshold-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+        .threshold-row input { width: 60px; font-size: var(--font-body); }
+
+        #map-wrap { position: relative; flex: 1; border-left: 1px solid #ddd; }
+        #map { width: 100%; height: 100%; }
+
+        /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
+        #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; }
+        #load-progress, #zoom-hint, .info-bar {
+            position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
+        }
+        #load-progress, #zoom-hint { z-index: 500; padding: 8px 12px; }
+        #legend { margin: 0 0 8px 16px; width: max-content; max-width: calc(100% - 32px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px 12px; }
+        #legend b { display: block; margin-bottom: 6px; }
+        .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+        .swatch { width: 13px; height: 13px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); }
+        #legend-compass-scale { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; }
+        #north-arrow { font-weight: bold; text-align: center; line-height: 1.1; }
+        #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
+        #scale-bar-label { margin-top: 2px; }
+        #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; color: #888; font-size: var(--font-small); }
+        #legend a, #sources-bar a { color: #06c; text-decoration: underline; }
+        #zoom-hint { top: 16px; left: 50%; transform: translateX(-50%); }
+        #load-progress { top: 16px; right: 16px; }
+        .hidden { display: none; }
+
+        /* Fixed bottom-right popup with a CSS triangle tail - the map highlight shows location, so no per-click position math is needed. */
+        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+        .info-bar.visible { display: block; }
+        .info-bar::before { content: ''; position: absolute; left: -8px; bottom: 20px; border: 8px solid transparent; border-right-color: #fff; }
+        .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
+        .info-bar table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        .info-bar td { padding: 2px 4px 2px 0; vertical-align: top; }
+        .info-bar td:first-child { font-weight: bold; width: 46%; }
+        .info-bar button { position: absolute; top: 4px; right: 7px; background: none; border: none; font-size: var(--font-body); cursor: pointer; color: #888; }
+        .info-bar button:hover { color: #333; }
+
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.visible { display: flex; }
+        .modal-box { background: #fff; color: #333; border-radius: 8px; padding: 16px 20px; max-width: 440px; width: 92%; max-height: 80vh; overflow-y: auto; box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: var(--font-body); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h3 { margin: 0; font-size: var(--font-title); }
+        .modal-close { background: none; border: none; font-size: var(--font-body); line-height: 1; cursor: pointer; color: #888; }
+        .modal-close:hover { color: #333; }
+        .modal-box h4 { font-size: var(--font-small); text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 16px 0 6px; }
+        .modal-box h4:first-of-type { margin-top: 0; }
+        .modal-box p { margin: 0 0 6px; font-size: var(--font-body); color: #555; }
+        .modal-box table { width: 100%; border-collapse: collapse; font-size: var(--font-body); margin-bottom: 4px; }
+        .modal-box td, .modal-box th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #eee; }
+        .modal-box th { color: #888; font-weight: normal; }
+        .modal-box a { color: #06c; text-decoration: underline; }
+        .modal-box a:hover { color: #04c; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div id="sidebar">
+        <h1 id="app-title"></h1>
+
+        <h2>View by</h2>
+        <label><input type="radio" name="view-mode" value="taxlot" checked> Taxlot</label>
+        <label><input type="radio" name="view-mode" value="zoning"> Portland zoning polygon</label>
+        <label><input type="radio" name="view-mode" value="block"> Census block</label>
+        <label><input type="radio" name="view-mode" value="tract"> Census tract</label>
+
+        <h2>Color by</h2>
+        <label><input type="radio" name="color-by" value="existing" checked> <button type="button" class="density-link" id="existing-density-info-btn"></button></label>
+        <label><input type="radio" name="color-by" value="maximum"> <button type="button" class="density-link" id="max-density-info-btn"></button></label>
+
+        <label><input type="checkbox" id="show-outlines-toggle"> Show taxlot/area outlines</label>
+
+        <h2>Legend thresholds (units/acre)</h2>
+        <div class="threshold-row"><span>Threshold 1</span><input type="number" id="threshold-1" min="0" step="1" value="20"></div>
+        <div class="threshold-row"><span>Threshold 2 (optional)</span><input type="number" id="threshold-2" min="0" step="1" value="60"></div>
+
+        <hr>
+        <button type="button" id="download-btn">Download map image (uses current view)</button>
+        <hr>
+
+        <p>Only taxlots/areas that are zoned for residential use or have existing housing units are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden.</p>
+    </div>
+
+    <div id="map-wrap">
+        <div id="map"></div>
+        <div id="zoom-hint">Zoom in to see individual shapes</div>
+        <div id="load-progress">Loading taxlots&hellip;</div>
+        <div id="legend-stack">
+            <div id="legend">
+                <b id="legend-title">Existing units/acre</b>
+                <div id="legend-rows"></div>
+                <div id="legend-compass-scale">
+                    <div id="north-arrow">N<br>&uarr;</div>
+                    <div>
+                        <div id="scale-bar-bar"></div>
+                        <div id="scale-bar-label"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="sources-bar"></div>
+        </div>
+        <div class="info-bar" id="info-bar">
+            <button type="button" id="info-bar-close-btn">&times;</button>
+            <b id="info-bar-title"></b>
+            <table id="info-bar-table"></table>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="existing-density-modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header"><h3 id="existing-density-modal-title"></h3><button type="button" class="modal-close" id="existing-density-close-btn">&times;</button></div>
+
+        <p>Existing unit counts for each taxlot come from Metro's regional <a href="#" id="housing-link" target="_blank" rel="noopener">Housing</a> inventory, while taxlot/area acreages come from Metro's regional <a href="#" id="taxlots-public-link" target="_blank" rel="noopener">Taxlots (Public)</a> layer.</p>
+        
+        <h4 id="existing-density-area-avg-heading"></h4>
+        <p id="existing-density-area-avg-text"></p>
+    </div>
+</div>
+
+<div class="modal-overlay" id="max-density-modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header"><h3 id="max-density-modal-title"></h3><button type="button" class="modal-close" id="max-density-close-btn">&times;</button></div>
+
+        <h4><a href="#" id="base-zones-link" target="_blank" rel="noopener">Portland Residential Base Zones</a></h4>
+        <table id="zone-density-table"></table>
+        <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on <a href="#" id="cottage-cluster-link" target="_blank" rel="noopener">Portland City Code 33.110.265.G</a>.</p>
+
+        <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
+        <p>Metro created these 48 generalized zoning classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not units/acre (that is, RM1, RM2, RM3, RM4, and RX). </p>
+        <table id="metro-density-table"></table>
+
+        <h4 id="max-density-area-avg-heading"></h4>
+        <p id="max-density-area-avg-text"></p>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
+<script>
+// Single source of truth for the app name - the browser tab title and the sidebar h1 both read from this instead of each carrying their own copy.
+var APP_TITLE = 'Portland Housing Density Mapper';
+document.title = APP_TITLE;
+document.getElementById('app-title').textContent = APP_TITLE;
+
+// Every citation URL used more than once in this file, defined exactly once here - every place that used to hardcode its own copy (a modal link's href, the RIP-eligible table column, the legend's sources line) now points at one of these instead.
+var CITATIONS = {
+    housing: 'https://rlisdiscovery.oregonmetro.gov/datasets/drcMetro::housing/about',
+    taxlotsPublic: 'https://rlisdiscovery.oregonmetro.gov/datasets/taxlots-public/about',
+    portlandZoningLayer: 'https://gis-pdx.opendata.arcgis.com/datasets/zoning/about',
+    baseZonesCode: 'https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A',
+    metroZoneClass: 'https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.',
+    ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
+};
+document.getElementById('housing-link').href = CITATIONS.housing;
+document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
+document.getElementById('base-zones-link').href = CITATIONS.baseZonesCode;
+document.getElementById('cottage-cluster-link').href = CITATIONS.ripCode;
+document.getElementById('metro-zone-class-link').href = CITATIONS.metroZoneClass;
+
+// Every font size in this app, including the canvas-drawn download image below, which reads these same computed values back instead of keeping its own separate numbers.
+var ROOT_STYLE = getComputedStyle(document.documentElement);
+var FONT_BODY_PX = parseFloat(ROOT_STYLE.getPropertyValue('--font-body'));
+var FONT_SMALL_PX = parseFloat(ROOT_STYLE.getPropertyValue('--font-small'));
+
+// Basemap: OpenFreeMap's free vector tiles (CARTO's raster tiles now need a paid key). canvasContextAttributes.preserveDrawingBuffer keeps the WebGL canvas readable for the image export below (MapLibre v5 moved this out of the top-level options).
+var map = L.map('map', { attributionControl: false }).setView([45.5152, -122.6784], 12);
+L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/positron', attribution: 'OpenFreeMap &copy; OpenMapTiles &copy; OpenStreetMap', canvasContextAttributes: { preserveDrawingBuffer: true } }).addTo(map);
+
+// North arrow + scale bar live inside the legend box (not as separate Leaflet controls) so the download-image export - which bakes the legend onto canvas manually rather than screenshotting the DOM - can draw them too. The north arrow itself is a fixed decorative convention, not a live indicator (the map never rotates); the scale bar's own math is the same one Leaflet's built-in L.Control.Scale uses (round to a "nice" number that fits a target pixel width), reused here so both the on-screen bar and the exported one agree.
+function getRoundNum(num) {
+    var pow10 = Math.pow(10, (Math.floor(num) + '').length - 1), d = num / pow10;
+    d = d >= 10 ? 10 : d >= 5 ? 5 : d >= 3 ? 3 : d >= 2 ? 2 : 1;
+    return pow10 * d;
+}
+function computeScaleBar() {
+    var y = map.getSize().y / 2;
+    var maxMeters = map.containerPointToLatLng([0, y]).distanceTo(map.containerPointToLatLng([100, y]));
+    var maxFeet = maxMeters * 3.28084;
+    if (maxFeet > 5280) {
+        var maxMiles = maxFeet / 5280, miles = getRoundNum(maxMiles);
+        return { widthPx: 100 * (miles / maxMiles), label: miles + ' mi' };
+    }
+    var feet = getRoundNum(maxFeet);
+    return { widthPx: 100 * (feet / maxFeet), label: feet + ' ft' };
+}
+function updateScaleBar() {
+    var s = computeScaleBar();
+    document.getElementById('scale-bar-bar').style.width = Math.round(s.widthPx) + 'px';
+    document.getElementById('scale-bar-label').textContent = s.label;
+}
+map.on('zoomend moveend', updateScaleBar);
+
+// Every data source this tool draws from, listed here once and read by both the on-screen sources line (with real links) and the exported image (plain text, since a PNG can't carry a hyperlink) - see drawLegendOnImage below.
+var DATA_SOURCES_LABEL = 'Data sources: ';
+var LEGEND_SOURCES = [
+    ['Metro "Housing" Feature Layer', CITATIONS.housing],
+    ['Metro "Taxlots (Public)" Feature Layer', CITATIONS.taxlotsPublic],
+    ['Portland "Zoning" Feature Layer', CITATIONS.portlandZoningLayer],
+    ['Metro Zoning Generalized Classifications', CITATIONS.metroZoneClass],
+    ['Portland City Code 33.110.265 (Residential Infill Options)', CITATIONS.ripCode],
+];
+document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
+    return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
+}).join(', ');
+
+function esriRingsToLatLngRings(rings) {
+    return rings.map(function(ring) { return ring.map(function(pt) { return [pt[1], pt[0]]; }); });
+}
+function fetchAndDecompress(url) {
+    return fetch(url).then(function(res) {
+        if (!res.ok) throw new Error(url + ': ' + res.status);
+        return new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).json();
+    });
+}
+
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted average from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and MUR zones, which never get a portlandZoneClass at all) > existing units as a last resort.
+// Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
+var formulas = null; // populated once initialDataReady resolves
+var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
+
+function isResidentialMetroZone(zoneClass) {
+    return new RegExp('^(' + formulas.residentialMetroPrefixes.join('|') + ')').test(zoneClass || '');
+}
+function ripMaximumUnits(zone, sqft) {
+    if (!(zone in formulas.ripSixplexMinSqft) || sqft == null) return null;
+    var best = sqft >= formulas.ripSixplexMinSqft[zone] ? 6 : 2;
+    var ccMin = formulas.cottageClusterMinSqft[zone];
+    if (ccMin !== undefined && sqft >= ccMin && sqft <= formulas.cottageClusterMaxSqft) {
+        best = Math.max(best, Math.min(Math.floor(sqft / formulas.cottageClusterSqftPerUnit), formulas.cottageClusterMaxUnits));
+    }
+    return best;
+}
+function taxlotMaximumDensity(t) {
+    // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit).
+    var existing = Math.round(t.existingDensity * t.acres), zone = t.portlandZoneClass, v, units;
+    if (zone === 'RMP') { units = Math.max(existing, Math.floor(formulas.rmpUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, label: v.toFixed(1) + ' units/acre (RMP: 1 unit/1,500 sq ft)' }; }
+    if (zone in formulas.ripSixplexMinSqft) {
+        var rip = ripMaximumUnits(zone, t.sqft);
+        if (rip !== null) { v = Math.max(existing, rip) / t.acres; return { value: v, label: v.toFixed(1) + ' units/acre (RIP-eligible)' }; }
+    }
+    if (t.zoneClass in formulas.zoneClassDensity) {
+        units = Math.max(existing, Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres));
+        v = units / t.acres;
+        // Three real cases, not two: a known zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for (e.g. RF) > a zone this data source never assigns a Portland code to at all (MUR - zone is null).
+        var note = zone in NO_CAP_ZONES ? 'city sets no flat cap' : zone ? 'no dedicated formula for this zone' : 'zoning detail not on file';
+        return { value: v, label: '~' + v.toFixed(1) + ' units/acre (est. via Metro ' + t.zoneClass + ' - ' + note + ')' };
+    }
+    return { value: t.existingDensity, label: 'Unknown (zoning class not covered by this data)' };
+}
+
+// Legend: 1 threshold -> 2 color bins, 2 thresholds -> 3 bins.
+var COLORS = ['#c6dbef', '#6baed6', '#08519c'];
+function getThresholds() {
+    var t1 = parseFloat(document.getElementById('threshold-1').value);
+    var t2 = parseFloat(document.getElementById('threshold-2').value);
+    if (isNaN(t1)) t1 = null;
+    if (isNaN(t2) || t2 <= (t1 === null ? -Infinity : t1)) t2 = null;
+    return { t1: t1, t2: t2 };
+}
+function colorForDensity(d, th) {
+    if (th.t1 === null) return COLORS[1];
+    if (th.t2 === null) return d >= th.t1 ? COLORS[2] : COLORS[0];
+    return d >= th.t2 ? COLORS[2] : d >= th.t1 ? COLORS[1] : COLORS[0];
+}
+function legendEntries() {
+    var th = getThresholds();
+    return th.t1 === null ? [[COLORS[1], 'All taxlots']]
+        : th.t2 === null ? [[COLORS[0], '< ' + th.t1], [COLORS[2], '≥ ' + th.t1]]
+        : [[COLORS[0], '< ' + th.t1], [COLORS[1], th.t1 + '–' + th.t2], [COLORS[2], '≥ ' + th.t2]];
+}
+var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
+function rebuildLegend() {
+    document.getElementById('legend-title').textContent = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' units/acre';
+    document.getElementById('legend-rows').innerHTML = legendEntries().map(function(e) {
+        return '<div class="legend-row"><span class="swatch" style="background:' + e[0] + '"></span>' + e[1] + '</div>';
+    }).join('');
+}
+document.getElementById('threshold-1').oninput = document.getElementById('threshold-2').oninput = function() { rebuildLegend(); redrawShapes(); };
+rebuildLegend();
+updateScaleBar();
+
+var viewMode = 'taxlot';
+document.querySelectorAll('input[name=view-mode]').forEach(function(r) { r.onchange = function() { viewMode = this.value; redrawShapes(); }; });
+document.querySelectorAll('input[name=color-by]').forEach(function(r) { r.onchange = function() { colorBy = this.value; rebuildLegend(); redrawShapes(); }; });
+document.getElementById('show-outlines-toggle').onchange = redrawShapes;
+
+function densityForColor(mode, t) {
+    return colorBy === 'existing' ? t.existingDensity : mode === 'taxlot' ? taxlotMaximumDensity(t).value : t.maximumDensity;
+}
+
+// Info popup: highlights the clicked shape on the map; the box itself stays fixed bottom-right so no per-click position math is needed.
+var infoBar = document.getElementById('info-bar');
+var highlightLayer = L.layerGroup().addTo(map);
+
+function closeInfoBar() { infoBar.classList.remove('visible'); highlightLayer.clearLayers(); }
+document.getElementById('info-bar-close-btn').onclick = closeInfoBar;
+
+function showInfoBar(rings, title, rows) {
+    highlightLayer.clearLayers();
+    L.polygon(esriRingsToLatLngRings(rings), { color: '#666', weight: 3, fill: false }).addTo(highlightLayer);
+    document.getElementById('info-bar-title').textContent = title;
+    document.getElementById('info-bar-table').innerHTML = rows.map(function(r) { return '<tr><td>' + r[0] + '<td>' + r[1]; }).join('');
+    infoBar.classList.add('visible');
+}
+
+var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Census Block Info', tract: 'Census Tract Info' };
+function infoForShape(mode, t) {
+    if (mode === 'taxlot') {
+        return { title: TITLES.taxlot, rows: [
+            ['Address', t.address || 'No address on file'],
+            ['Zoning classification', t.portlandZoneClass || 'N/A (zoning class not covered by this data)'],
+            ['Maximum density', taxlotMaximumDensity(t).label],
+            ['Existing density', t.existingDensity.toFixed(1) + ' units/acre'],
+        ] };
+    }
+    // Aggregate modes: both densities are real area-weighted averages computed in build_aggregation_layers.py, not a qualitative label.
+    return { title: TITLES[mode], rows: [
+        ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
+        ['Maximum density (average)', t.maximumDensity.toFixed(1) + ' units/acre'],
+        ['Existing density (average)', t.existingDensity.toFixed(1) + ' units/acre'],
+    ] };
+}
+
+// Density info modals, one per "Color by" option - each pair's title is set once, here, and read by both the sidebar link and its own modal header, so the two can never say something different from each other. Table content is still built directly from the same formulas object every density number on the map comes from (see buildDensityInfoModal below), so the reference tables can't drift from the real calculation either.
+function wireDensityModal(linkId, titleId, overlayId, closeId, title) {
+    document.getElementById(linkId).textContent = title;
+    document.getElementById(titleId).textContent = title;
+    var overlay = document.getElementById(overlayId);
+    document.getElementById(linkId).onclick = function() { overlay.classList.add('visible'); };
+    document.getElementById(closeId).onclick = function() { overlay.classList.remove('visible'); };
+}
+wireDensityModal('existing-density-info-btn', 'existing-density-modal-title', 'existing-density-modal-overlay', 'existing-density-close-btn', 'Existing density');
+wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density');
+
+// Same area-averaging methodology applies to both metrics, so both modals read from this one definition rather than each keeping its own wording.
+var AREA_AVERAGES_HEADING = 'Area averages';
+var AREA_AVERAGES_TEXT = 'Area averages (that is, for Portland zoning polygons, census blocks, and census tracts) are calculated by summing the value of all residential taxlots within the area and dividing by the total acreage.';
+['existing-density', 'max-density'].forEach(function(prefix) {
+    document.getElementById(prefix + '-area-avg-heading').textContent = AREA_AVERAGES_HEADING;
+    document.getElementById(prefix + '-area-avg-text').textContent = AREA_AVERAGES_TEXT;
+});
+function buildDensityInfoModal() {
+    // Real citation for the RIP-eligible column: Portland City Code 33.110.265 (Residential infill options) - Table 110-7 for the duplex/triplex/affordable-sixplex thresholds, Subsection G.1.a for cottage cluster site sizes. Directly confirmed against the PDF, not guessed. Same CITATIONS.ripCode used for the Cottage Cluster note and the legend's sources line, above.
+    var rows = Object.keys(formulas.ripSixplexMinSqft).map(function(zone) {
+        var six = formulas.ripSixplexMinSqft[zone], ccMin = formulas.cottageClusterMinSqft[zone];
+        var text = '2 units (duplex); 6 units if lot ≥ ' + six.toLocaleString() + ' sq ft';
+        if (ccMin !== undefined) {
+            text += '; cottage cluster (up to ' + formulas.cottageClusterMaxUnits + ' units, ' + formulas.cottageClusterSqftPerUnit.toLocaleString() + ' sq ft/unit) if lot is ' + ccMin.toLocaleString() + '–' + formulas.cottageClusterMaxSqft.toLocaleString() + ' sq ft';
+        }
+        return '<tr><td>' + zone + '<td>Yes<td>' + text;
+    });
+    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' units/acre (1 unit/1,500 sq ft)');
+    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>No flat cap (floor-area-ratio limited instead) - this tool estimates a ceiling from Metro\'s own generalized zoning class for that same taxlot instead (see below)');
+    document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
+
+    var metroRows = Object.keys(formulas.zoneClassDensity).map(function(k) {
+        return '<tr><td>' + k + '<td>' + formulas.zoneClassDensity[k] + ' units/acre';
+    });
+    document.getElementById('metro-density-table').innerHTML = '<tr><th>Zone<th>Maximum density permitted (units/acre)' + metroRows.join('');
+}
+
+// Taxlot mode needs high zoom (~183k taxlots); the 3 precomputed aggregate layers read fine much further out.
+var ZOOM_FOR_MODE = { taxlot: 14, zoning: 10, block: 10, tract: 10 };
+var datasets = { taxlot: [], zoning: [], block: [], tract: [] };
+var shapesRenderer = L.canvas({ padding: 0.5 });
+var shapesLayer = L.layerGroup().addTo(map);
+
+function redrawShapes() {
+    shapesLayer.clearLayers();
+    closeInfoBar();
+    if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList.remove('hidden'); return; }
+    document.getElementById('zoom-hint').classList.add('hidden');
+
+    var mode = viewMode, th = getThresholds(), bounds = map.getBounds(), showOutlines = document.getElementById('show-outlines-toggle').checked;
+    datasets[mode].forEach(function(t) {
+        if (!bounds.contains([t.lat, t.lng])) return;
+        var shape = L.polygon(esriRingsToLatLngRings(t.rings), {
+            renderer: shapesRenderer, color: '#333', weight: showOutlines ? 1 : 0,
+            fillColor: colorForDensity(densityForColor(mode, t), th), fillOpacity: 0.85,
+        }).addTo(shapesLayer);
+        var info = infoForShape(mode, t);
+        shape.on('click', function() { showInfoBar(t.rings, info.title, info.rows); });
+    });
+}
+map.on('zoomend moveend', redrawShapes);
+
+// density_formulas.json and the 3 aggregate layers are all small - fine to fetch directly on the main thread, together. The taxlot Worker below (which does need formulas, for its own live per-taxlot calculation) awaits this same promise before touching any of it.
+var initialDataReady = Promise.all([
+    fetch('runtime-data/density_formulas.json').then(function(r) { return r.json(); }),
+    fetchAndDecompress('runtime-data/zoning_polygons.json.gz').catch(function() { return []; }),
+    fetchAndDecompress('runtime-data/census_tracts.json.gz').catch(function() { return []; }),
+    fetchAndDecompress('runtime-data/census_blocks.json.gz').catch(function() { return []; }),
+]).then(function(results) {
+    formulas = results[0];
+    formulas.noCapZones.forEach(function(z) { NO_CAP_ZONES[z] = 1; });
+    function withCentroid(list) {
+        return list.map(function(z) { var c = esriRingsToLatLngRings(z.rings)[0][0]; return Object.assign({ lat: c[0], lng: c[1] }, z); });
+    }
+    datasets.zoning = withCentroid(results[1]);
+    datasets.tract = withCentroid(results[2]);
+    datasets.block = withCentroid(results[3]);
+    buildDensityInfoModal();
+    redrawShapes();
+});
+
+// The taxlot dataset is much bigger (100MB+ decompressed), so it runs in the same Web Worker index.html uses, off the main thread.
+var progressEl = document.getElementById('load-progress');
+var worker = new Worker('workers/taxlot-parse-worker.js');
+worker.onmessage = function(e) {
+    var msg = e.data;
+    if (msg.type === 'progress') {
+        progressEl.textContent = msg.fraction == null ? 'Loading taxlots…' : msg.fraction >= 1 ? 'Loading taxlots…processing' : 'Loading taxlots…' + Math.round(msg.fraction * 100) + '%';
+    } else if (msg.type === 'done') {
+        progressEl.textContent = 'Filtering to Portland…';
+        initialDataReady.then(function() {
+            setTimeout(function() {
+                datasets.taxlot = msg.data.filter(function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length && isResidentialMetroZone(t.zoneClass); })
+                    .map(function(t) {
+                        return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, portlandZoneClass: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingDensity: (t.existingUnits || 0) / t.acres };
+                    });
+                progressEl.classList.add('hidden');
+                redrawShapes();
+                worker.terminate();
+            }, 0);
+        });
+    } else {
+        progressEl.textContent = 'Could not load taxlot data.';
+        worker.terminate();
+    }
+};
+worker.postMessage({ url: '/taxlot-data', fallbackUrl: '/runtime-data/taxlot_density_data.json.gz' });
+
+// Download image: composites every canvas inside #map (the MapLibre basemap + the Leaflet shapes canvas, both real <canvas> elements) at their current on-screen position, then bakes the whole legend box on top (north arrow, scale bar, color key, and sources) so all of it survives outside the app - the legend is drawn manually here rather than screenshotted, since it's not a <canvas> itself.
+function wrapLines(ctx, text, maxWidth) {
+    var words = text.split(' '), line = '', lines = [];
+    words.forEach(function(word) {
+        var test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+        else line = test;
+    });
+    if (line) lines.push(line);
+    return lines;
+}
+// Sources run the full width of the image as their own strip along the bottom (export-only - the on-screen legend keeps its own compact, always-visible layout instead, since a full-width bar doesn't make sense as a permanent UI element).
+function drawSourcesBar(ctx, dpr) {
+    var pad = 10 * dpr, fontSize = FONT_SMALL_PX * dpr, lineH = 15 * dpr;
+    ctx.font = fontSize + 'px sans-serif';
+    var text = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) { return s[0]; }).join(', ');
+    var lines = wrapLines(ctx, text, ctx.canvas.width - pad * 2);
+    var h = pad * 2 + lines.length * lineH;
+    var y = ctx.canvas.height - h;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, y, ctx.canvas.width, h);
+    ctx.strokeStyle = '#ddd'; ctx.lineWidth = dpr;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(ctx.canvas.width, y); ctx.stroke();
+    ctx.fillStyle = '#888'; ctx.textBaseline = 'top';
+    lines.forEach(function(line, i) { ctx.fillText(line, pad, y + pad + lineH * i); });
+    return h;
+}
+// Legend box: color key on top, north arrow to the left of the scale bar below that (export-only layout - see drawSourcesBar above for why the export and the on-screen legend no longer match each other).
+function drawLegendBox(ctx, dpr, bottomOffset) {
+    var entries = legendEntries(), fontSize = FONT_BODY_PX * dpr;
+    var rowH = 18 * dpr, pad = 10 * dpr, titleH = 22 * dpr;
+    var titleText = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' units/acre';
+    var s = computeScaleBar();
+
+    // Width sizes to whatever content is actually widest (title, a row, or the compass row) - same as the on-screen legend's own width:max-content, rather than a fixed guess that leaves dead space or clips something.
+    ctx.font = 'bold ' + fontSize + 'px sans-serif';
+    var contentW = ctx.measureText(titleText).width;
+    ctx.font = fontSize + 'px sans-serif';
+    entries.forEach(function(e) { contentW = Math.max(contentW, 20 * dpr + ctx.measureText(e[1]).width); });
+    contentW = Math.max(contentW, 28 * dpr + Math.max(s.widthPx * dpr, ctx.measureText(s.label).width));
+    var w = contentW + pad * 2;
+
+    var keyH = titleH + entries.length * rowH;
+    var compassH = Math.max(fontSize * 2, 12 * dpr + fontSize); // taller of the "N"/"↑" two-line arrow and the scale-bar-plus-label block
+    var h = pad + keyH + pad + compassH + pad;
+    var x = 16 * dpr, y = ctx.canvas.height - bottomOffset - 16 * dpr - h;
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#ddd'; ctx.lineWidth = dpr;
+    ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+    ctx.textBaseline = 'top';
+
+    // Color key
+    var keyX = x + pad, topY = y + pad;
+    ctx.fillStyle = '#333'; ctx.font = 'bold ' + fontSize + 'px sans-serif';
+    ctx.fillText(titleText, keyX, topY);
+    ctx.font = fontSize + 'px sans-serif';
+    entries.forEach(function(e, i) {
+        var ry = topY + titleH + rowH * i;
+        ctx.fillStyle = e[0]; ctx.fillRect(keyX, ry, 13 * dpr, 13 * dpr);
+        ctx.fillStyle = '#333'; ctx.fillText(e[1], keyX + 20 * dpr, ry - 2 * dpr);
+    });
+
+    // North arrow to the left of the scale bar, below the color key
+    var compassY = topY + keyH + pad;
+    ctx.strokeStyle = '#eee'; ctx.lineWidth = dpr;
+    ctx.beginPath(); ctx.moveTo(keyX, compassY - pad / 2); ctx.lineTo(x + w - pad, compassY - pad / 2); ctx.stroke();
+    ctx.fillStyle = '#333'; ctx.font = 'bold ' + fontSize + 'px sans-serif'; ctx.textAlign = 'center';
+    var arrowX = keyX + 10 * dpr;
+    ctx.fillText('N', arrowX, compassY);
+    ctx.fillText('↑', arrowX, compassY + fontSize);
+    ctx.textAlign = 'left';
+    var barX = keyX + 28 * dpr, barW = s.widthPx * dpr, barY = compassY + 6 * dpr;
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(barX, barY); ctx.lineTo(barX + barW, barY);
+    ctx.moveTo(barX, barY - 4 * dpr); ctx.lineTo(barX, barY + 4 * dpr);
+    ctx.moveTo(barX + barW, barY - 4 * dpr); ctx.lineTo(barX + barW, barY + 4 * dpr);
+    ctx.stroke();
+    ctx.font = fontSize + 'px sans-serif'; ctx.fillText(s.label, barX, barY + 6 * dpr);
+}
+document.getElementById('download-btn').onclick = function() {
+    // Leaflet's canvas panes are drawn oversized (a panning buffer beyond the viewport) and CSS-shifted into place, so each canvas has to be clipped to just its overlap with the viewport - not drawn in full - or most of it lands off the edge of the output.
+    var view = document.getElementById('map').getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    var out = document.createElement('canvas');
+    out.width = view.width * dpr;
+    out.height = view.height * dpr;
+    var ctx = out.getContext('2d');
+    document.getElementById('map').querySelectorAll('canvas').forEach(function(c) {
+        var r = c.getBoundingClientRect();
+        var sw = Math.min(r.right, view.right) - Math.max(r.left, view.left);
+        var sh = Math.min(r.bottom, view.bottom) - Math.max(r.top, view.top);
+        if (sw <= 0 || sh <= 0) return;
+        var scaleX = c.width / r.width, scaleY = c.height / r.height;
+        var sx = Math.max(0, view.left - r.left), sy = Math.max(0, view.top - r.top);
+        var dx = Math.max(0, r.left - view.left) * dpr, dy = Math.max(0, r.top - view.top) * dpr;
+        ctx.drawImage(c, sx * scaleX, sy * scaleY, sw * scaleX, sh * scaleY, dx, dy, sw * dpr, sh * dpr);
+    });
+    var sourcesBarH = drawSourcesBar(ctx, dpr);
+    drawLegendBox(ctx, dpr, sourcesBarH);
+    var link = document.createElement('a');
+    link.download = 'portland-housing-density-map-' + new Date().toISOString().slice(0, 10) + '.png';
+    link.href = out.toDataURL('image/png');
+    link.click();
+};
+</script>
+</body>
+</html>
