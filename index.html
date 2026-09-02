@@ -35,13 +35,17 @@
         #map { width: 100%; height: 100%; }
 
         /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
-        #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; }
+        /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves
+        a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow
+        clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that
+        actually have visible content. */
+        #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
         #load-progress, #zoom-hint, .info-bar {
             position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
         }
         #load-progress, #zoom-hint { z-index: 500; padding: 8px 12px; }
-        #legend { margin: 0 0 8px 16px; width: max-content; max-width: calc(100% - 32px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px 12px; }
+        #legend { margin: 0 0 8px 16px; width: max-content; max-width: calc(100% - 32px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px 12px; pointer-events: auto; }
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
         .swatch { width: 13px; height: 13px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); }
@@ -49,7 +53,7 @@
         #north-arrow { font-weight: bold; text-align: center; line-height: 1.1; }
         #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
         #scale-bar-label { margin-top: 2px; }
-        #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; color: #888; font-size: var(--font-small); }
+        #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; color: #888; font-size: var(--font-small); pointer-events: auto; }
         #legend a, #sources-bar a { color: #06c; }
         #zoom-hint { top: 16px; left: 50%; transform: translateX(-50%); }
         #load-progress { top: 16px; right: 16px; }
@@ -57,7 +61,10 @@
 
         /* Fixed bottom-right popup with a CSS triangle tail - the map highlight shows location, so no per-click position math is needed. */
         /* pointer-events: none so a shape underneath the popup (bottom-right by default, so a very likely overlap once selection persists across pans/zooms) stays clickable - only re-enabled on the close button below, the popup's one real interactive element. */
-        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; border: 1.5px solid #ddd; }
+        /* border-width doesn't render fractional values in Chromium (1.5px measured back as 1px even at 2x DPR)
+        - an inset box-shadow paints through a different pipeline that isn't snapped the same way, so it's used
+        here instead to get a real 1.5px edge; border is turned off so it doesn't also draw the shared 1px one. */
+        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25), inset 0 0 0 1.5px #ddd; pointer-events: none; border: none; }
         .info-bar.visible { display: block; }
         .info-bar.top-right { bottom: auto; top: 16px; }
         .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
@@ -479,6 +486,29 @@ function redrawShapes() {
     });
 }
 map.on('zoomend moveend', redrawShapes);
+
+// Cursor feedback for hovering a clickable shape: Leaflet's own built-in canvas hover-cursor mechanism
+// (and even manually attached mouseover/mouseout listeners on individual shapes) never fired in this app for
+// reasons that didn't turn up under investigation - clicking itself works fine, just not hover detection. So
+// this reads the shapes canvas's own pixel data directly instead: any non-transparent pixel under the cursor
+// means a shape is rendered there, which is a cheap, DPR-safe way to hit-test a canvas that sidesteps
+// whatever's suppressing Leaflet's own hover events, without reimplementing point-in-polygon for however many
+// thousand shapes might be on screen.
+var shapesCanvasCtx = null; // lazy - shapesRenderer._container doesn't exist until Leaflet actually renders the first shape onto it
+var lastHoverCheck = 0;
+map.on('mousemove', function(e) {
+    var canvas = shapesRenderer._container;
+    if (!canvas) return; // nothing rendered yet (e.g. still loading)
+    if (!shapesCanvasCtx) shapesCanvasCtx = canvas.getContext('2d');
+    var now = Date.now();
+    if (now - lastHoverCheck < 40) return; // throttled - getImageData forces a GPU->CPU readback
+    lastHoverCheck = now;
+    var rect = canvas.getBoundingClientRect();
+    var cx = Math.floor((e.originalEvent.clientX - rect.left) * (canvas.width / rect.width));
+    var cy = Math.floor((e.originalEvent.clientY - rect.top) * (canvas.height / rect.height));
+    var hovering = cx >= 0 && cy >= 0 && cx < canvas.width && cy < canvas.height && shapesCanvasCtx.getImageData(cx, cy, 1, 1).data[3] > 0;
+    map.getContainer().style.cursor = hovering ? 'pointer' : '';
+});
 
 // density_formulas.json and the 3 aggregate layers are all small - fine to fetch directly on the main thread, together. The taxlot Worker below (which does need formulas, for its own live per-taxlot calculation) awaits this same promise before touching any of it.
 var initialDataReady = Promise.all([
