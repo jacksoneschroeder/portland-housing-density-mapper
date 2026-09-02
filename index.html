@@ -333,11 +333,16 @@ function colorForDensity(d, th) {
     if (th.t2 === null) return d >= th.t1 ? COLORS[2] : COLORS[0];
     return d >= th.t2 ? COLORS[2] : d >= th.t1 ? COLORS[1] : COLORS[0];
 }
+// Touching ranges like "0.0-20.0, 20.0-60.0" leave it ambiguous which bracket a boundary value itself belongs
+// to; a gapped one like "0-19, 20-59" implies a hole between 19 and 20 that doesn't really exist, since
+// density is continuous, not integer. Splitting the gap at 0.1 - the same precision every density figure in
+// this app is already displayed at (.toFixed(1)) - sidesteps both: adjacent brackets are genuinely adjacent
+// at that precision, so nothing real falls in the "gap" between them.
 function legendEntries() {
     var th = getThresholds();
-    return th.t1 === null ? [[COLORS[1], 'All taxlots']]
-        : th.t2 === null ? [[COLORS[0], '< ' + th.t1], [COLORS[2], '≥ ' + th.t1]]
-        : [[COLORS[0], '< ' + th.t1], [COLORS[1], th.t1 + '–' + th.t2], [COLORS[2], '≥ ' + th.t2]];
+    if (th.t1 === null) return [[COLORS[1], 'All taxlots']];
+    if (th.t2 === null) return [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[2], th.t1.toFixed(1) + '+']];
+    return [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[1], th.t1.toFixed(1) + '–' + (th.t2 - 0.1).toFixed(1)], [COLORS[2], th.t2.toFixed(1) + '+']];
 }
 var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
 function rebuildLegend() {
