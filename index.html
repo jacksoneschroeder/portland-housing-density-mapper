@@ -540,8 +540,6 @@ function buildDensityInfoModal() {
     // above CI1 since all three are Chapter 33.150. Zones sharing both a FAR and a citation still collapse
     // into one row (e.g. RM4/RX both 4:1 under 33.120.210). The FAR-to-units methodology itself is explained
     // once, in #far-note below, rather than repeated on every row.
-    var eg1Eg2Acres = datasets.taxlot.filter(function(t) { return t.portlandZoneClass === 'EG1' || t.portlandZoneClass === 'EG2'; })
-        .reduce(function(sum, t) { return sum + t.acres; }, 0);
     var farZoneOrder = ['RM1', 'RM2', 'RM3', 'RM4', 'RX', 'CM1', 'CM2', 'CE', 'CM3', 'CX', 'EX', 'CI2', 'IR'];
     var seenFarGroups = {};
     farZoneOrder.forEach(function(zone) {
@@ -550,12 +548,12 @@ function buildDensityInfoModal() {
         seenFarGroups[key] = true;
         var zones = farZoneOrder.filter(function(z) { var g = formulas.farValues[z]; return g && g.far === f.far && g.citation === f.citation; });
         rows.push('<tr><td>' + zones.join(', ') + '<td>No<td>Maximum FAR of ' + f.far + ' (' + f.citation + ')');
-        // Same Chapter 33.140 as EX (see farZoneOrder above) - Household Living is limited to only a narrow
-        // existing-hotel/motel-to-affordable-housing conversion, confirmed against Table 140-1, so it's
-        // genuinely negligible for a housing-capacity tool rather than a real, usable formula: only
-        // eg1Eg2Acres total across this tool's entire Metro-classified residential taxlot dataset.
+        // Same Chapter 33.140 as EX (see farZoneOrder above) - confirmed against Table 140-1, Household Living
+        // is a limited use here: allowed only when converting an existing hotel or motel to affordable
+        // housing, prohibited otherwise. Which taxlots that ends up covering depends on what's already built
+        // on them, not anything the zoning code itself designates - so "none" for this model's own purposes.
         if (zone === 'EX') {
-            rows.push('<tr><td>EG1, EG2<td>No<td>Practically none (only ' + eg1Eg2Acres.toFixed(1) + ' acres, and only under certain scenarios - Portland City Code 33.140.100)');
+            rows.push('<tr><td>EG1, EG2<td>No<td>None (for the purposes of this model, because residential development is only allowed on very specific taxlots within this zone - Portland City Code 33.140.100)');
         }
     });
     // Same Chapter 33.150 as CI2/IR above - Household Living is flatly prohibited, confirmed against Table 150-1.
@@ -689,7 +687,6 @@ worker.onmessage = function(e) {
                     });
                 progressEl.classList.add('hidden');
                 redrawShapes();
-                buildDensityInfoModal(); // re-render now that datasets.taxlot (read by its own EG1/EG2 acreage figure) is actually populated - the first call, in initialDataReady's own .then above, necessarily ran before taxlot loading (a separate, slower Worker fetch) finished
                 worker.terminate();
             }, 0);
         });
