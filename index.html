@@ -45,11 +45,6 @@
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
         .swatch { width: 13px; height: 13px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); }
-        .legend-bar { display: flex; width: 140px; height: 14px; border-radius: 3px; overflow: hidden; border: 1px solid rgba(0,0,0,.15); }
-        .legend-bar-seg { flex: 1; }
-        .legend-bar-labels { position: relative; width: 140px; height: 16px; margin-top: 3px; font-size: var(--font-small); }
-        .legend-bar-tick { position: absolute; top: -3px; width: 1px; height: 5px; background: #999; }
-        .legend-bar-label { position: absolute; top: 2px; }
         #legend-compass-scale { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; }
         #north-arrow { font-weight: bold; text-align: center; line-height: 1.1; }
         #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
@@ -338,39 +333,18 @@ function colorForDensity(d, th) {
     if (th.t2 === null) return d >= th.t1 ? COLORS[2] : COLORS[0];
     return d >= th.t2 ? COLORS[2] : d >= th.t1 ? COLORS[1] : COLORS[0];
 }
-// A stepped gradient bar instead of one swatch+label row per bin - more compact, and the boundary VALUES sit
-// right at the color transitions instead of needing "<"/"≥" symbols to say the same thing in words. Only the
-// INTERNAL boundaries get a label (1 threshold -> 1 label, 2 thresholds -> 2 labels) - the outer ends are
-// open-ended ranges with no real number to put there. Colors are still equal-width segments regardless of
-// threshold spacing (this is a set of discrete bins being labeled, not a continuous numeric scale), so a
-// boundary's label position is just its bin index over the bin count, not the threshold value itself.
-function legendBins() {
+function legendEntries() {
     var th = getThresholds();
-    return th.t1 === null ? { colors: [COLORS[1]], boundaries: [] }
-        : th.t2 === null ? { colors: [COLORS[0], COLORS[2]], boundaries: [th.t1] }
-        : { colors: [COLORS[0], COLORS[1], COLORS[2]], boundaries: [th.t1, th.t2] };
+    return th.t1 === null ? [[COLORS[1], 'All taxlots']]
+        : th.t2 === null ? [[COLORS[0], '< ' + th.t1], [COLORS[2], '≥ ' + th.t1]]
+        : [[COLORS[0], '< ' + th.t1], [COLORS[1], th.t1 + '–' + th.t2], [COLORS[2], '≥ ' + th.t2]];
 }
 var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
 function rebuildLegend() {
     document.getElementById('legend-title').textContent = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' du/ac';
-    var bins = legendBins(), el = document.getElementById('legend-rows');
-    if (bins.boundaries.length === 0) {
-        el.innerHTML = '<div class="legend-row"><span class="swatch" style="background:' + bins.colors[0] + '"></span>All taxlots</div>';
-        return;
-    }
-    var bar = '<div class="legend-bar">' + bins.colors.map(function(c) { return '<div class="legend-bar-seg" style="background:' + c + '"></div>'; }).join('') + '</div>';
-    // Density can't be negative, so 0 is a real, meaningful lower bound worth a tick+label just like every
-    // real threshold - unlike the right edge, which is a genuine open-ended "≥" range with no fixed number to
-    // show. Each tick sits exactly where its own bin begins, with the value left-aligned just to its right,
-    // rather than centered on the boundary - so which side a boundary VALUE itself belongs to (e.g. is 44
-    // light or dark blue, when the threshold is 44?) is never ambiguous: the label visually starts the
-    // segment it's the lower bound of, matching the real >= comparison colorForDensity itself uses.
-    var allBoundaries = [0].concat(bins.boundaries);
-    var labels = '<div class="legend-bar-labels">' + allBoundaries.map(function(b, i) {
-        var pct = i / bins.colors.length * 100;
-        return '<span class="legend-bar-tick" style="left:' + pct + '%"></span><span class="legend-bar-label" style="left:calc(' + pct + '% + 2px)">' + b + '</span>';
-    }).join('') + '</div>';
-    el.innerHTML = bar + labels;
+    document.getElementById('legend-rows').innerHTML = legendEntries().map(function(e) {
+        return '<div class="legend-row"><span class="swatch" style="background:' + e[0] + '"></span>' + e[1] + '</div>';
+    }).join('');
 }
 document.getElementById('threshold-1').oninput = document.getElementById('threshold-2').oninput = function() { rebuildLegend(); redrawShapes(); };
 rebuildLegend();
@@ -706,21 +680,20 @@ function drawSourcesBar(ctx, dpr) {
 }
 // Legend box: color key on top, north arrow to the left of the scale bar below that (export-only layout - see drawSourcesBar above for why the export and the on-screen legend no longer match each other).
 function drawLegendBox(ctx, dpr, bottomOffset) {
-    var bins = legendBins(), fontSize = FONT_BODY_PX * dpr;
-    var pad = 10 * dpr, titleH = 22 * dpr;
+    var entries = legendEntries(), fontSize = FONT_BODY_PX * dpr;
+    var rowH = 18 * dpr, pad = 10 * dpr, titleH = 22 * dpr;
     var titleText = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' du/ac';
     var s = computeScaleBar();
-    var legendBarW = 140 * dpr, legendBarH = 14 * dpr, legendBarLabelH = fontSize + 4 * dpr;
 
-    // Width sizes to whatever content is actually widest (title, the bar, or the compass row) - same as the on-screen legend's own width:max-content, rather than a fixed guess that leaves dead space or clips something.
+    // Width sizes to whatever content is actually widest (title, a row, or the compass row) - same as the on-screen legend's own width:max-content, rather than a fixed guess that leaves dead space or clips something.
     ctx.font = 'bold ' + fontSize + 'px sans-serif';
     var contentW = ctx.measureText(titleText).width;
     ctx.font = fontSize + 'px sans-serif';
-    contentW = Math.max(contentW, bins.boundaries.length === 0 ? 20 * dpr + ctx.measureText('All taxlots').width : legendBarW);
+    entries.forEach(function(e) { contentW = Math.max(contentW, 20 * dpr + ctx.measureText(e[1]).width); });
     contentW = Math.max(contentW, 28 * dpr + Math.max(s.widthPx * dpr, ctx.measureText(s.label).width));
     var w = contentW + pad * 2;
 
-    var keyH = bins.boundaries.length === 0 ? titleH + 18 * dpr : titleH + legendBarH + legendBarLabelH;
+    var keyH = titleH + entries.length * rowH;
     var compassH = Math.max(fontSize * 2, 12 * dpr + fontSize); // taller of the "N"/"↑" two-line arrow and the scale-bar-plus-label block
     var h = pad + keyH + pad + compassH + pad;
     var x = 16 * dpr, y = ctx.canvas.height - bottomOffset - 16 * dpr - h;
@@ -728,33 +701,16 @@ function drawLegendBox(ctx, dpr, bottomOffset) {
     ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
     ctx.textBaseline = 'top';
 
-    // Color key: a single swatch+label row when there's nothing to bin (no thresholds set), otherwise the
-    // same stepped gradient bar as the on-screen legend - equal-width color segments with each INTERNAL
-    // boundary's real threshold value drawn centered underneath it (the outer ends are open-ended ranges,
-    // so nothing is drawn there).
+    // Color key
     var keyX = x + pad, topY = y + pad;
     ctx.fillStyle = '#333'; ctx.font = 'bold ' + fontSize + 'px sans-serif';
     ctx.fillText(titleText, keyX, topY);
     ctx.font = fontSize + 'px sans-serif';
-    if (bins.boundaries.length === 0) {
-        var ry = topY + titleH;
-        ctx.fillStyle = bins.colors[0]; ctx.fillRect(keyX, ry, 13 * dpr, 13 * dpr);
-        ctx.fillStyle = '#333'; ctx.fillText('All taxlots', keyX + 20 * dpr, ry - 2 * dpr);
-    } else {
-        var legendBarY = topY + titleH, legendSegW = legendBarW / bins.colors.length;
-        bins.colors.forEach(function(c, i) { ctx.fillStyle = c; ctx.fillRect(keyX + legendSegW * i, legendBarY, legendSegW, legendBarH); });
-        ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = dpr; ctx.strokeRect(keyX, legendBarY, legendBarW, legendBarH);
-        // Same tick+label-starts-the-segment convention as the on-screen legend (see rebuildLegend's own
-        // comment for the full reasoning) - a tick exactly at each bin's own start, its value drawn just to
-        // the tick's right rather than centered on it, so a boundary value's own bin is never ambiguous.
-        var allBoundaries = [0].concat(bins.boundaries);
-        ctx.fillStyle = '#333'; ctx.strokeStyle = '#999'; ctx.lineWidth = dpr;
-        allBoundaries.forEach(function(b, i) {
-            var tx = keyX + legendSegW * i;
-            ctx.beginPath(); ctx.moveTo(tx, legendBarY + legendBarH); ctx.lineTo(tx, legendBarY + legendBarH + 5 * dpr); ctx.stroke();
-            ctx.fillText(b, tx + 2 * dpr, legendBarY + legendBarH + 4 * dpr);
-        });
-    }
+    entries.forEach(function(e, i) {
+        var ry = topY + titleH + rowH * i;
+        ctx.fillStyle = e[0]; ctx.fillRect(keyX, ry, 13 * dpr, 13 * dpr);
+        ctx.fillStyle = '#333'; ctx.fillText(e[1], keyX + 20 * dpr, ry - 2 * dpr);
+    });
 
     // North arrow to the left of the scale bar, below the color key
     var compassY = topY + keyH + pad;
