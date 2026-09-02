@@ -250,7 +250,7 @@ def ring_bbox(rings):
 
 def aggregate_onto_polygons(polygons_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone):
     # existingDensity and maximumDensity (both computed by the caller as units/acres) are true area-weighted
-    # averages - sum of each taxlot's own existing/maximum units, divided by the same sum of acres - not a
+    # means - sum of each taxlot's own existing/maximum units, divided by the same sum of acres - not a
     # zone-level label or a majority-vote shortcut. That keeps the two figures directly comparable, and
     # matches the taxlot-mode popup's own per-parcel numbers exactly when a polygon happens to hold just one.
     results = []
@@ -322,15 +322,18 @@ def main():
     print('cached zoning features:', len(zoning_features))
     zoning_rings = [f['geometry']['rings'] for f in zoning_features]
     zoning_zones = [f['attributes']['ZONE'] for f in zoning_features]
+    zoning_ids = [f['attributes']['OBJECTID'] for f in zoning_features]
     zoning_agg = aggregate_onto_polygons(zoning_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone)
     zoning_out = []
-    for rings, zone, agg in zip(zoning_rings, zoning_zones, zoning_agg):
+    for rings, zone, polygon_id, agg in zip(zoning_rings, zoning_zones, zoning_ids, zoning_agg):
         if agg['acres'] <= 0 or zone not in RESIDENTIAL_PORTLAND_ZONES:
             continue
         zoning_out.append({
             'zone': zone,
+            'polygonId': polygon_id,
             'rings': rings,
             'existingUnits': round(agg['existingUnits']),
+            'maximumUnits': round(agg['maximumUnits']),
             'acres': agg['acres'],
             'existingDensity': round(agg['existingUnits'] / agg['acres'], 2),
             'maximumDensity': round(agg['maximumUnits'] / agg['acres'], 2),
@@ -365,6 +368,7 @@ def main():
                 'name': name,
                 'rings': rings,
                 'existingUnits': round(a['existingUnits']),
+                'maximumUnits': round(a['maximumUnits']),
                 'acres': a['acres'],
                 'existingDensity': round(a['existingUnits'] / a['acres'], 2),
                 'maximumDensity': round(a['maximumUnits'] / a['acres'], 2),

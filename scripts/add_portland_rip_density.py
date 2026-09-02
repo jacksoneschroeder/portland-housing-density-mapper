@@ -99,7 +99,7 @@ def fetch_portland_zoning_features():
     page_size = 200  # This layer's own maxRecordCount - see this script's own git history for the empirical check
     while True:
         params = {
-            'where': '1=1', 'outFields': 'ZONE', 'outSR': '4326', 'returnGeometry': 'true',
+            'where': '1=1', 'outFields': 'ZONE,OBJECTID', 'outSR': '4326', 'returnGeometry': 'true',
             'resultOffset': offset, 'resultRecordCount': page_size, 'f': 'json',
         }
         body = post_query(PORTLAND_ZONING_URL, params)

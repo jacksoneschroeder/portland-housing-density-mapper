@@ -144,8 +144,8 @@
 
         <p>Existing unit counts for each taxlot come from Metro's regional <a href="#" id="housing-link" target="_blank" rel="noopener">Housing</a> inventory, while taxlot/area acreages come from Metro's regional <a href="#" id="taxlots-public-link" target="_blank" rel="noopener">Taxlots (Public)</a> layer.</p>
         
-        <h4 id="existing-density-area-avg-heading"></h4>
-        <p id="existing-density-area-avg-text"></p>
+        <h4 id="existing-density-area-mean-heading"></h4>
+        <p id="existing-density-area-mean-text"></p>
     </div>
 </div>
 
@@ -161,8 +161,8 @@
         <p>Metro created these 48 generalized zoning classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not units/acre (that is, RM1, RM2, RM3, RM4, and RX). </p>
         <table id="metro-density-table"></table>
 
-        <h4 id="max-density-area-avg-heading"></h4>
-        <p id="max-density-area-avg-text"></p>
+        <h4 id="max-density-area-mean-heading"></h4>
+        <p id="max-density-area-mean-text"></p>
     </div>
 </div>
 
@@ -246,7 +246,7 @@ function fetchAndDecompress(url) {
     });
 }
 
-// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted average from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and MUR zones, which never get a portlandZoneClass at all) > existing units as a last resort.
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and MUR zones, which never get a portlandZoneClass at all) > existing units as a last resort.
 // Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
 var formulas = null; // populated once initialDataReady resolves
 var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
@@ -264,21 +264,21 @@ function ripMaximumUnits(zone, sqft) {
     return best;
 }
 function taxlotMaximumDensity(t) {
-    // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit).
+    // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from.
     var existing = Math.round(t.existingDensity * t.acres), zone = t.portlandZoneClass, v, units;
-    if (zone === 'RMP') { units = Math.max(existing, Math.floor(formulas.rmpUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, label: v.toFixed(1) + ' units/acre (RMP: 1 unit/1,500 sq ft)' }; }
+    if (zone === 'RMP') { units = Math.max(existing, Math.floor(formulas.rmpUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RMP: 1 unit/1,500 sq ft)' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
-        if (rip !== null) { v = Math.max(existing, rip) / t.acres; return { value: v, label: v.toFixed(1) + ' units/acre (RIP-eligible)' }; }
+        if (rip !== null) { units = Math.max(existing, rip); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RIP-eligible)' }; }
     }
     if (t.zoneClass in formulas.zoneClassDensity) {
         units = Math.max(existing, Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres));
         v = units / t.acres;
         // Three real cases, not two: a known zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for (e.g. RF) > a zone this data source never assigns a Portland code to at all (MUR - zone is null).
         var note = zone in NO_CAP_ZONES ? 'city sets no flat cap' : zone ? 'no dedicated formula for this zone' : 'zoning detail not on file';
-        return { value: v, label: '~' + v.toFixed(1) + ' units/acre (est. via Metro ' + t.zoneClass + ' - ' + note + ')' };
+        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (est. via Metro ' + t.zoneClass + ' - ' + note + ')' };
     }
-    return { value: t.existingDensity, label: 'Unknown (zoning class not covered by this data)' };
+    return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
 }
 
 // Legend: 1 threshold -> 2 color bins, 2 thresholds -> 3 bins.
@@ -360,20 +360,29 @@ function showInfoBar(center, clickPoint, rings, title, rows) {
 }
 
 var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Census Block Info', tract: 'Census Tract Info' };
+var ID_LABELS = { zoning: 'Polygon ID', block: 'Census block ID', tract: 'Census tract ID' };
 function infoForShape(mode, t) {
     if (mode === 'taxlot') {
+        var max = taxlotMaximumDensity(t);
         return { title: TITLES.taxlot, rows: [
             ['Address', t.address || 'No address on file'],
             ['Zoning classification', t.portlandZoneClass || 'N/A (zoning class not covered by this data)'],
-            ['Maximum density', taxlotMaximumDensity(t).label],
+            ['Area', t.acres.toFixed(2) + ' acres'],
+            ['Zoned maximum units', max.units == null ? 'Unknown' : max.units],
+            ['Existing units', t.existingUnits],
+            ['Zoned maximum density', max.label],
             ['Existing density', t.existingDensity.toFixed(1) + ' units/acre'],
         ] };
     }
-    // Aggregate modes: both densities are real area-weighted averages computed in build_aggregation_layers.py, not a qualitative label.
+    // Aggregate modes: unit totals and densities are all real area-weighted sums/means computed in build_aggregation_layers.py, not a qualitative label.
     return { title: TITLES[mode], rows: [
+        [ID_LABELS[mode], mode === 'zoning' ? t.polygonId : t.name],
         ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
-        ['Maximum density (average)', t.maximumDensity.toFixed(1) + ' units/acre'],
-        ['Existing density (average)', t.existingDensity.toFixed(1) + ' units/acre'],
+        ['Area', t.acres.toFixed(2) + ' acres'],
+        ['Zoned maximum units (total)', t.maximumUnits],
+        ['Existing units (total)', t.existingUnits],
+        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' units/acre'],
+        ['Existing density (mean)', t.existingDensity.toFixed(1) + ' units/acre'],
     ] };
 }
 
@@ -389,11 +398,11 @@ wireDensityModal('existing-density-info-btn', 'existing-density-modal-title', 'e
 wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density');
 
 // Same area-averaging methodology applies to both metrics, so both modals read from this one definition rather than each keeping its own wording.
-var AREA_AVERAGES_HEADING = 'Area averages';
-var AREA_AVERAGES_TEXT = 'Area averages (that is, for Portland zoning polygons, census blocks, and census tracts) are calculated by summing the value of all residential taxlots within the area and dividing by the total acreage.';
+var AREA_MEANS_HEADING = 'Area means';
+var AREA_MEANS_TEXT = 'Area means (that is, for Portland zoning polygons, census blocks, and census tracts) are calculated by summing the value of all residential taxlots within the area and dividing by the total acreage.';
 ['existing-density', 'max-density'].forEach(function(prefix) {
-    document.getElementById(prefix + '-area-avg-heading').textContent = AREA_AVERAGES_HEADING;
-    document.getElementById(prefix + '-area-avg-text').textContent = AREA_AVERAGES_TEXT;
+    document.getElementById(prefix + '-area-mean-heading').textContent = AREA_MEANS_HEADING;
+    document.getElementById(prefix + '-area-mean-text').textContent = AREA_MEANS_TEXT;
 });
 function buildDensityInfoModal() {
     // Real citation for the RIP-eligible column: Portland City Code 33.110.265 (Residential infill options) - Table 110-7 for the duplex/triplex/affordable-sixplex thresholds, Subsection G.1.a for cottage cluster site sizes. Directly confirmed against the PDF, not guessed. Same CITATIONS.ripCode used for the Cottage Cluster note and the legend's sources line, above.
@@ -471,7 +480,7 @@ worker.onmessage = function(e) {
             setTimeout(function() {
                 datasets.taxlot = msg.data.filter(function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length && isResidentialMetroZone(t.zoneClass); })
                     .map(function(t) {
-                        return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, portlandZoneClass: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingDensity: (t.existingUnits || 0) / t.acres };
+                        return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, portlandZoneClass: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingUnits: t.existingUnits || 0, existingDensity: (t.existingUnits || 0) / t.acres };
                     });
                 progressEl.classList.add('hidden');
                 redrawShapes();
