@@ -56,14 +56,15 @@
         .hidden { display: none; }
 
         /* Fixed bottom-right popup with a CSS triangle tail - the map highlight shows location, so no per-click position math is needed. */
-        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+        /* pointer-events: none so a shape underneath the popup (bottom-right by default, so a very likely overlap once selection persists across pans/zooms) stays clickable - only re-enabled on the close button below, the popup's one real interactive element. */
+        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; }
         .info-bar.visible { display: block; }
         .info-bar.top-right { bottom: auto; top: 16px; }
         .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
         .info-bar table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .info-bar td { padding: 2px 4px 2px 0; vertical-align: top; }
         .info-bar td:first-child { font-weight: bold; width: 46%; }
-        .info-bar button { position: absolute; top: 4px; right: 7px; background: none; border: none; font-size: var(--font-body); cursor: pointer; color: #888; }
+        .info-bar button { position: absolute; top: 4px; right: 7px; background: none; border: none; font-size: var(--font-body); cursor: pointer; color: #888; pointer-events: auto; }
         .info-bar button:hover { color: #333; }
 
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1000; align-items: center; justify-content: center; }
@@ -239,6 +240,31 @@ document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_S
 function esriRingsToLatLngRings(rings) {
     return rings.map(function(ring) { return ring.map(function(pt) { return [pt[1], pt[0]]; }); });
 }
+// True area-weighted centroid (shoelace formula), not just the first vertex - used as the connector line's
+// map-side endpoint (see showInfoBar below), so it needs to land inside the shape, not on its boundary. Only
+// the largest ring by area is used (a polygon can have multiple disjoint parts/holes; the biggest one is
+// almost always the real body, and a degenerate zero-area ring can't contribute a centroid at all).
+function ringCentroid(ring) {
+    var a = 0, cx = 0, cy = 0;
+    for (var i = 0; i < ring.length - 1; i++) {
+        var x0 = ring[i][0], y0 = ring[i][1], x1 = ring[i + 1][0], y1 = ring[i + 1][1];
+        var cross = x0 * y1 - x1 * y0;
+        a += cross;
+        cx += (x0 + x1) * cross;
+        cy += (y0 + y1) * cross;
+    }
+    a *= 0.5;
+    if (a === 0) return null;
+    return { lng: cx / (6 * a), lat: cy / (6 * a), area: Math.abs(a) };
+}
+function polygonCentroid(rings) {
+    var best = null;
+    rings.forEach(function(ring) {
+        var c = ringCentroid(ring);
+        if (c && (!best || c.area > best.area)) best = c;
+    });
+    return best || { lat: rings[0][0][1], lng: rings[0][0][0] }; // degenerate fallback: first vertex
+}
 function fetchAndDecompress(url) {
     return fetch(url).then(function(res) {
         if (!res.ok) throw new Error(url + ': ' + res.status);
@@ -355,7 +381,7 @@ function showInfoBar(center, clickPoint, rings, title, rows) {
     var underPopup = clickPoint.x >= mapRect.width - 16 - boxRect.width && clickPoint.y >= mapRect.height - 16 - boxRect.height;
     infoBar.classList.toggle('top-right', underPopup);
 
-    connectorLine = L.polyline([center, center], { color: '#666', weight: 1.5 }).addTo(highlightLayer);
+    connectorLine = L.polyline([center, center], { color: '#666', weight: 2.5 }).addTo(highlightLayer);
     updateConnectorLine();
 }
 
@@ -458,7 +484,7 @@ var initialDataReady = Promise.all([
     formulas = results[0];
     formulas.noCapZones.forEach(function(z) { NO_CAP_ZONES[z] = 1; });
     function withCentroid(list) {
-        return list.map(function(z) { var c = esriRingsToLatLngRings(z.rings)[0][0]; return Object.assign({ lat: c[0], lng: c[1] }, z); });
+        return list.map(function(z) { return Object.assign(polygonCentroid(z.rings), z); });
     }
     datasets.zoning = withCentroid(results[1]);
     datasets.tract = withCentroid(results[2]);
