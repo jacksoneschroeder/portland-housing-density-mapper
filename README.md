@@ -28,4 +28,4 @@ If you want live spatial data, you'll have to regenerate the data in `runtime-da
 7. `python3 scripts/add_portland_rip_density.py` - calculates the maximum units allowed per taxlot according to Portland's Residential Infill Project (Portland City Code 33.110.265).
 8. `python3 scripts/build_aggregation_layers.py` - builds the data for the aggregate areas (that is, Portland zoning polygons, census blocks, and census tracts).
 
-Steps 4–7 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
+Steps 4–8 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
