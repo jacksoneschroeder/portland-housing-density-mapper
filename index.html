@@ -259,10 +259,7 @@ document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_S
 function esriRingsToLatLngRings(rings) {
     return rings.map(function(ring) { return ring.map(function(pt) { return [pt[1], pt[0]]; }); });
 }
-// True area-weighted centroid (shoelace formula), not just the first vertex - used as the connector line's
-// map-side endpoint (see showInfoBar below), so it needs to land inside the shape, not on its boundary. Only
-// the largest ring by area is used (a polygon can have multiple disjoint parts/holes; the biggest one is
-// almost always the real body, and a degenerate zero-area ring can't contribute a centroid at all).
+// True area-weighted centroid (shoelace formula), not just the first vertex - used as the connector line's map-side endpoint (see showInfoBar below), so it needs to land inside the shape, not on its boundary. Only the largest ring by area is used (a polygon can have multiple disjoint parts/holes; the biggest one is almost always the real body, and a degenerate zero-area ring can't contribute a centroid at all).
 function ringCentroid(ring) {
     var a = 0, cx = 0, cy = 0;
     for (var i = 0; i < ring.length - 1; i++) {
@@ -369,28 +366,9 @@ function densityForColor(mode, t) {
     return colorBy === 'existing' ? t.existingDensity : mode === 'taxlot' ? taxlotMaximumDensity(t).value : t.maximumDensity;
 }
 
-// Info popup: shows details for whichever shape is nearest a click, not the shape you literally hit. A single
-// map-level click handler (findNearestShape, below with redrawShapes) picks the closest shape in the current
-// view mode's dataset - point-in-polygon for a real hit, nearest-perimeter-distance as a fallback for a near-
-// miss (a street, a gap between parcels) - rather than requiring per-shape Leaflet click handlers, which is
-// what forced every rendered shape to carry its own interactive hit target before. That per-shape approach is
-// also what caused the earlier "hit or miss" clicking and cursor-detection problems this replaces: with
-// nothing left listening for click/hover on the shapes themselves, nothing can intercept a click meant for the
-// map underneath ever again. (Ported from this project's own TOD-PITCH sibling, which solved the same problem
-// the same way for its own taxlot popup.)
-//
-// The popup itself always docks bottom-right at a fixed position - it never flips corners depending on where
-// you clicked (which was its own source of inconsistent behavior for a large shape whose bounds straddle that
-// corner). If a click would land underneath it, the MAP pans left just far enough to clear it instead
-// (panMapClearOfInfoBar below) - the popup's position is a promise callers can rely on; the map moves around
-// that promise instead of the other way around.
-//
-// The connecting line and the popup's own visible card+border are both drawn as plain SVG, entirely outside
-// Leaflet's own layer/rendering system (pointer-events: none on the svg root, in the CSS itself, not something
-// that needed discovering through debugging). #info-bar itself is background: transparent - the white
-// rounded-rect people actually see is #info-pointer-shape's own fill, sized to match the bar's real
-// getBoundingClientRect() every time that might have changed. This also makes the border a real, crisp
-// sub-pixel stroke - unlike CSS border-width, SVG stroke-width isn't snapped to whole device pixels.
+// Info popup: shows details for whichever shape is nearest a click, not the shape you literally hit. A single map-level click handler (findNearestShape, below with redrawShapes) picks the closest shape in the current view mode's dataset - point-in-polygon for a real hit, nearest-perimeter-distance as a fallback for a near-miss (a street, a gap between parcels) - rather than requiring per-shape Leaflet click handlers, which is what forced every rendered shape to carry its own interactive hit target before. That per-shape approach is also what caused the earlier "hit or miss" clicking and cursor-detection problems this replaces: with nothing left listening for click/hover on the shapes themselves, nothing can intercept a click meant for the map underneath ever again. (Ported from this project's own TOD-PITCH sibling, which solved the same problem the same way for its own taxlot popup.)
+// The popup itself always docks bottom-right at a fixed position - it never flips corners depending on where you clicked (which was its own source of inconsistent behavior for a large shape whose bounds straddle that corner). If a click would land underneath it, the MAP pans left just far enough to clear it instead (panMapClearOfInfoBar below) - the popup's position is a promise callers can rely on; the map moves around that promise instead of the other way around.
+// The connecting line and the popup's own visible card+border are both drawn as plain SVG, entirely outside Leaflet's own layer/rendering system (pointer-events: none on the svg root, in the CSS itself, not something that needed discovering through debugging). #info-bar itself is background: transparent - the white rounded-rect people actually see is #info-pointer-shape's own fill, sized to match the bar's real getBoundingClientRect() every time that might have changed. This also makes the border a real, crisp sub-pixel stroke - unlike CSS border-width, SVG stroke-width isn't snapped to whole device pixels.
 var infoBar = document.getElementById('info-bar');
 var infoPointerLine = document.getElementById('info-pointer-line');
 var infoPointerShape = document.getElementById('info-pointer-shape');
@@ -404,10 +382,7 @@ infoPointerLine.setAttribute('stroke', '#666');
 
 L.DomEvent.disableClickPropagation(infoBar); // Otherwise a click on the close button (or anywhere else in the bar) would bubble to the map's own click handler below and immediately reopen/move the bar wherever it happens to be sitting on screen
 
-// The bar's own bottom offset isn't a fixed 8px - #sources-bar (the full-width strip along the map's own
-// bottom edge) can be taller or shorter depending on how many lines its citation links wrap to, so this reads
-// its real rendered height and sits the standard 8px margin above THAT instead of a value that would either
-// leave a gap or actually overlap it depending on how long that text happens to be.
+// The bar's own bottom offset isn't a fixed 8px - #sources-bar (the full-width strip along the map's own bottom edge) can be taller or shorter depending on how many lines its citation links wrap to, so this reads its real rendered height and sits the standard 8px margin above THAT instead of a value that would either leave a gap or actually overlap it depending on how long that text happens to be.
 function updateInfoBarBottomOffset() {
     var mapRect = document.getElementById('map').getBoundingClientRect();
     var sourcesBarRect = document.getElementById('sources-bar').getBoundingClientRect();
@@ -446,9 +421,7 @@ function updateInfoPointer() {
         ' A ' + r + ',' + r + ' 0 0 1 ' + (left + r) + ',' + top +
         ' Z';
 
-    // Anchored from the bar's own top-left corner (always the near corner, since the bar is always right-docked)
-    // - sits just inside the rounded corner so it disappears cleanly under the shape path drawn right after it
-    // in the same svg, instead of poking a visible stub out past the curve.
+    // Anchored from the bar's own top-left corner (always the near corner, since the bar is always right-docked) - sits just inside the rounded corner so it disappears cleanly under the shape path drawn right after it in the same svg, instead of poking a visible stub out past the curve.
     infoPointerLine.setAttribute('x1', left + r);
     infoPointerLine.setAttribute('y1', top + r);
     infoPointerLine.setAttribute('x2', clickX);
@@ -457,10 +430,7 @@ function updateInfoPointer() {
 }
 map.on('move zoom', updateInfoPointer);
 
-// Replaces flipping the popup to the opposite corner when it would land on top of the point it's describing:
-// pans the map itself just far enough to clear it instead, by whichever of its two obstructing edges (its own
-// left edge, or its own top edge - it's docked to both the right and bottom of the map, so those are the only
-// two edges a click can ever cross into it from) needs less on-screen movement to clear.
+// Replaces flipping the popup to the opposite corner when it would land on top of the point it's describing: pans the map itself just far enough to clear it instead, by whichever of its two obstructing edges (its own left edge, or its own top edge - it's docked to both the right and bottom of the map, so those are the only two edges a click can ever cross into it from) needs less on-screen movement to clear.
 var INFO_BAR_PAN_CLEARANCE = 30;
 function panMapClearOfInfoBar(clickLatLng) {
     var mapRect = document.getElementById('map').getBoundingClientRect();
@@ -468,8 +438,7 @@ function panMapClearOfInfoBar(clickLatLng) {
     var barRect = infoBar.getBoundingClientRect();
     var barTop = barRect.top - mapRect.top, barLeft = barRect.left - mapRect.left;
     var desiredMaxX = barLeft - INFO_BAR_PAN_CLEARANCE, desiredMaxY = barTop - INFO_BAR_PAN_CLEARANCE;
-    // Only actually under the bar if BOTH past its left edge AND past its top edge - being past just one of
-    // the two (e.g. far above the bar but at some arbitrary x) isn't an obstruction at all.
+    // Only actually under the bar if BOTH past its left edge AND past its top edge - being past just one of the two (e.g. far above the bar but at some arbitrary x) isn't an obstruction at all.
     if (!(clickPoint.x > desiredMaxX && clickPoint.y > desiredMaxY)) return; // Already clear - the common case, most clicks don't land anywhere near the bar
     var deltaX = clickPoint.x - desiredMaxX, deltaY = clickPoint.y - desiredMaxY;
     var centerPoint = map.getSize().divideBy(2);
@@ -582,12 +551,7 @@ function redrawShapes() {
 }
 map.on('zoomend moveend', redrawShapes);
 
-// Nearest-shape lookup, generalized across all 4 view modes - picks whichever shape the click actually landed
-// in, not just whichever one's centroid happens to be closest (a large aggregate polygon's own centroid can be
-// far from an edge click, which would otherwise resolve to the wrong neighboring shape). Falls back to
-// whichever shape's PERIMETER (nearest edge point, not centroid) is closest when the click doesn't land inside
-// any shape's actual polygon at all (a street, a river, a gap between parcels). Ported from TOD-PITCH's own
-// findNearestTaxlot.
+// Nearest-shape lookup, generalized across all 4 view modes - picks whichever shape the click actually landed in, not just whichever one's centroid happens to be closest (a large aggregate polygon's own centroid can be far from an edge click, which would otherwise resolve to the wrong neighboring shape). Falls back to whichever shape's PERIMETER (nearest edge point, not centroid) is closest when the click doesn't land inside any shape's actual polygon at all (a street, a river, a gap between parcels). Ported from TOD-PITCH's own findNearestTaxlot.
 var NEAREST_SHAPE_MAX_MILES = 2; // How close a near-miss still has to be to count as "close enough" - past this, a click is just empty space
 var FIND_SHAPE_POLYGON_TEST_MAX_MILES = 5; // How far a shape's centroid can be from the click and still be worth a real (more expensive, per-vertex) point-in-polygon test - generous enough to cover even the largest census tracts, not just small taxlots
 function pointInPolygonRings(lng, lat, rings) {
