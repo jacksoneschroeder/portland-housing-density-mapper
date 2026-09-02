@@ -301,10 +301,10 @@ function ripMaximumUnits(zone, sqft) {
 function taxlotMaximumDensity(t) {
     // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from. Reports the formula's own number as-is, even when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - this is a real zoning-code ceiling, not a claim about what's already built, so it doesn't get bumped up to match existing.
     var zone = t.portlandZoneClass, v, units;
-    if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft - Portland City Code 33.120.212)' }; }
-    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code Ch. 33.130)' }; }
-    if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft - Portland City Code 33.610.100)' }; }
-    if (zone in formulas.noUnitsZones) { return { value: 0, units: 0, label: '0 du/ac (Household Living is prohibited in ' + zone + ' - ' + formulas.noUnitsZones[zone] + ')' }; }
+    if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft; Portland City Code 33.120.212)' }; }
+    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use"; Portland City Code Ch. 33.130)' }; }
+    if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft; Portland City Code 33.610.100)' }; }
+    if (zone in formulas.noUnitsZones) { return { value: 0, units: 0, label: '0 du/ac (Household Living is prohibited in ' + zone + '; ' + formulas.noUnitsZones[zone] + ')' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
         if (rip !== null) { units = rip; v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RIP-eligible)' }; }
@@ -317,8 +317,8 @@ function taxlotMaximumDensity(t) {
         units = metroUnits === null ? farUnits : Math.min(farUnits, metroUnits);
         v = units / t.acres;
         var label = (metroUnits !== null && metroUnits < farUnits)
-            ? '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' - lower than the FAR of ' + far.far + ' ceiling for ' + zone + ', ' + far.citation + ')'
-            : v.toFixed(1) + ' du/ac (FAR of ' + far.far + ' ÷ ' + formulas.farUnitSizeSqft + ' sq ft/unit assumed - ' + far.citation + ')';
+            ? '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' - lower than the FAR of ' + far.far + ' ceiling for ' + zone + '; ' + far.citation + ')'
+            : v.toFixed(1) + ' du/ac (FAR of ' + far.far + ' ÷ ' + formulas.farUnitSizeSqft + ' sq ft/unit assumed; ' + far.citation + ')';
         return { value: v, units: units, label: label };
     }
     if (t.zoneClass in formulas.zoneClassDensity) {
@@ -519,8 +519,8 @@ function buildDensityInfoModal() {
         }
         return '<tr><td>' + zone + '<td>Yes<td>' + text;
     });
-    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft - Portland City Code 33.120.212)');
-    rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac - Portland City Code 33.610.100)');
+    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft; Portland City Code 33.120.212)');
+    rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code 33.610.100)');
     rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code Ch. 33.130)');
     // Explicit display order groups zones by their real code chapter (33.120, then 33.130, then 33.140, then 33.150) instead of formulas.farValues's own insertion order, so a reader sees every zone from one chapter together - EX sits right above EG1/EG2 since all three are Chapter 33.140, and CI2/IR sit right above CI1 since all three are Chapter 33.150. Zones sharing both a FAR and a citation still collapse into one row (e.g. RM4/RX both 4:1 under 33.120.210). The FAR-to-units methodology itself is explained once, in #far-note below, rather than repeated on every row.
     var farZoneOrder = ['RM1', 'RM2', 'RM3', 'RM4', 'RX', 'CM1', 'CM2', 'CE', 'CM3', 'CX', 'EX', 'CI2', 'IR'];
@@ -533,7 +533,7 @@ function buildDensityInfoModal() {
         rows.push('<tr><td>' + zones.join(', ') + '<td>No<td>Maximum FAR of ' + f.far + ' (' + f.citation + ')');
         // Same Chapter 33.140 as EX (see farZoneOrder above) - confirmed against Table 140-1, Household Living is a limited use here: allowed only when converting an existing hotel or motel to affordable housing, prohibited otherwise. Which taxlots that ends up covering depends on what's already built on them, not anything the zoning code itself designates - so "none" for this model's own purposes.
         if (zone === 'EX') {
-            rows.push('<tr><td>EG1, EG2<td>No<td>None (for the purposes of this model, because residential development is only allowed on very specific taxlots within this zone - Portland City Code 33.140.100)');
+            rows.push('<tr><td>EG1, EG2<td>No<td>None (for the purposes of this model, because residential development is only allowed on very specific taxlots within this zone; Portland City Code 33.140.100)');
         }
     });
     // Same Chapter 33.150 as CI2/IR above - Household Living is flatly prohibited, confirmed against Table 150-1.
