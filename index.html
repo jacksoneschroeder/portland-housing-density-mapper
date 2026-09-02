@@ -194,6 +194,8 @@ var CITATIONS = {
     ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
     multiDwellingCode: 'https://www.portland.gov/sites/default/files/code/120-md-zones_3.pdf',
     commercialMixedUseCode: 'https://www.portland.gov/sites/default/files/code/130-c-zones_3.pdf',
+    employmentIndustrialCode: 'https://www.portland.gov/sites/default/files/code/140-ind-zones_1.pdf',
+    campusInstitutionalCode: 'https://www.portland.gov/sites/default/files/code/150-campus-inst-zones_1.pdf',
     singleDwellingLotCode: 'https://www.portland.gov/sites/default/files/code/610-rf-r2.5-lots_0.pdf',
 };
 document.getElementById('housing-link').href = CITATIONS.housing;
@@ -244,6 +246,8 @@ var LEGEND_SOURCES = [
     ['Portland City Code 33.110.265', CITATIONS.ripCode],
     ['Portland City Code 33.120.212', CITATIONS.multiDwellingCode],
     ['Portland City Code Ch. 33.130', CITATIONS.commercialMixedUseCode],
+    ['Portland City Code Ch. 33.140', CITATIONS.employmentIndustrialCode],
+    ['Portland City Code Ch. 33.150', CITATIONS.campusInstitutionalCode],
     ['Portland City Code 33.610.100', CITATIONS.singleDwellingLotCode],
 ];
 document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
