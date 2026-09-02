@@ -58,7 +58,7 @@
         /* Fixed bottom-right popup with a CSS triangle tail - the map highlight shows location, so no per-click position math is needed. */
         .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
         .info-bar.visible { display: block; }
-        .info-bar::before { content: ''; position: absolute; left: -8px; bottom: 20px; border: 8px solid transparent; border-right-color: #fff; }
+        .info-bar.top-right { bottom: auto; top: 16px; }
         .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
         .info-bar table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .info-bar td { padding: 2px 4px 2px 0; vertical-align: top; }
@@ -313,7 +313,7 @@ rebuildLegend();
 updateScaleBar();
 
 var viewMode = 'taxlot';
-document.querySelectorAll('input[name=view-mode]').forEach(function(r) { r.onchange = function() { viewMode = this.value; redrawShapes(); }; });
+document.querySelectorAll('input[name=view-mode]').forEach(function(r) { r.onchange = function() { viewMode = this.value; closeInfoBar(); redrawShapes(); }; });
 document.querySelectorAll('input[name=color-by]').forEach(function(r) { r.onchange = function() { colorBy = this.value; rebuildLegend(); redrawShapes(); }; });
 document.getElementById('show-outlines-toggle').onchange = redrawShapes;
 
@@ -321,19 +321,42 @@ function densityForColor(mode, t) {
     return colorBy === 'existing' ? t.existingDensity : mode === 'taxlot' ? taxlotMaximumDensity(t).value : t.maximumDensity;
 }
 
-// Info popup: highlights the clicked shape on the map; the box itself stays fixed bottom-right so no per-click position math is needed.
+// Info popup: highlights the clicked shape on the map and stays open across pans/zooms (only an explicit close,
+// a new click, or a view-mode change - which swaps the whole dataset out from under it - clears it). A leader
+// line connects the popup's top-left corner to the shape's real centroid; since the popup's corner is a fixed
+// screen position rather than a map coordinate, that one endpoint has to be recomputed on every 'move'/'zoom' -
+// the other endpoint is a real LatLng, so Leaflet reprojects it automatically with no extra work.
 var infoBar = document.getElementById('info-bar');
 var highlightLayer = L.layerGroup().addTo(map);
+var connectorLine = null;
 
-function closeInfoBar() { infoBar.classList.remove('visible'); highlightLayer.clearLayers(); }
+function closeInfoBar() { infoBar.classList.remove('visible', 'top-right'); highlightLayer.clearLayers(); connectorLine = null; }
 document.getElementById('info-bar-close-btn').onclick = closeInfoBar;
 
-function showInfoBar(rings, title, rows) {
+function updateConnectorLine() {
+    if (!connectorLine) return;
+    var mapRect = document.getElementById('map').getBoundingClientRect(), boxRect = infoBar.getBoundingClientRect();
+    var corner = map.containerPointToLatLng([boxRect.left - mapRect.left, boxRect.top - mapRect.top]);
+    connectorLine.setLatLngs([connectorLine.getLatLngs()[0], corner]);
+}
+map.on('move zoom', updateConnectorLine);
+
+function showInfoBar(center, clickPoint, rings, title, rows) {
     highlightLayer.clearLayers();
     L.polygon(esriRingsToLatLngRings(rings), { color: '#666', weight: 3, fill: false }).addTo(highlightLayer);
     document.getElementById('info-bar-title').textContent = title;
     document.getElementById('info-bar-table').innerHTML = rows.map(function(r) { return '<tr><td>' + r[0] + '<td>' + r[1]; }).join('');
+
+    // Render at the default bottom-right position first so its real rendered height can be measured, rather than
+    // guessing a fixed one, before deciding whether the click falls underneath it and it needs to flip to top-right.
+    infoBar.classList.remove('top-right');
     infoBar.classList.add('visible');
+    var mapRect = document.getElementById('map').getBoundingClientRect(), boxRect = infoBar.getBoundingClientRect();
+    var underPopup = clickPoint.x >= mapRect.width - 16 - boxRect.width && clickPoint.y >= mapRect.height - 16 - boxRect.height;
+    infoBar.classList.toggle('top-right', underPopup);
+
+    connectorLine = L.polyline([center, center], { color: '#666', weight: 1.5 }).addTo(highlightLayer);
+    updateConnectorLine();
 }
 
 var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Census Block Info', tract: 'Census Tract Info' };
@@ -400,7 +423,6 @@ var shapesLayer = L.layerGroup().addTo(map);
 
 function redrawShapes() {
     shapesLayer.clearLayers();
-    closeInfoBar();
     if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList.remove('hidden'); return; }
     document.getElementById('zoom-hint').classList.add('hidden');
 
@@ -412,7 +434,7 @@ function redrawShapes() {
             fillColor: colorForDensity(densityForColor(mode, t), th), fillOpacity: 0.85,
         }).addTo(shapesLayer);
         var info = infoForShape(mode, t);
-        shape.on('click', function() { showInfoBar(t.rings, info.title, info.rows); });
+        shape.on('click', function(e) { showInfoBar(L.latLng(t.lat, t.lng), e.containerPoint, t.rings, info.title, info.rows); });
     });
 }
 map.on('zoomend moveend', redrawShapes);
