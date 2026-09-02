@@ -401,6 +401,18 @@ infoPointerLine.setAttribute('stroke', '#666');
 
 L.DomEvent.disableClickPropagation(infoBar); // Otherwise a click on the close button (or anywhere else in the bar) would bubble to the map's own click handler below and immediately reopen/move the bar wherever it happens to be sitting on screen
 
+// The bar's own bottom offset isn't a fixed 16px - #sources-bar (the full-width strip along the map's own
+// bottom edge) can be taller or shorter depending on how many lines its citation links wrap to, so this reads
+// its real rendered height and sits the standard 16px margin above THAT instead of a value that would either
+// leave a gap or actually overlap it depending on how long that text happens to be.
+function updateInfoBarBottomOffset() {
+    var mapRect = document.getElementById('map').getBoundingClientRect();
+    var sourcesBarRect = document.getElementById('sources-bar').getBoundingClientRect();
+    infoBar.style.bottom = (mapRect.bottom - sourcesBarRect.top + 16) + 'px';
+}
+updateInfoBarBottomOffset();
+window.addEventListener('resize', updateInfoBarBottomOffset);
+
 function closeInfoBar() {
     infoBar.classList.remove('visible');
     infoPointerLine.classList.remove('visible');
@@ -443,21 +455,23 @@ function updateInfoPointer() {
 map.on('move zoom', updateInfoPointer);
 
 // Replaces flipping the popup to the opposite corner when it would land on top of the point it's describing:
-// pans the map itself the minimum horizontal distance needed to clear it by INFO_BAR_PAN_CLEARANCE px instead.
-// The bar is always right-docked, so the only edge it can ever obstruct a click from is its own left edge - a
-// horizontal-only pan is always enough.
-var INFO_BAR_PAN_CLEARANCE = 10;
+// pans the map itself just far enough to clear it instead, by whichever of its two obstructing edges (its own
+// left edge, or its own top edge - it's docked to both the right and bottom of the map, so those are the only
+// two edges a click can ever cross into it from) needs less on-screen movement to clear.
+var INFO_BAR_PAN_CLEARANCE = 30;
 function panMapClearOfInfoBar(clickLatLng) {
     var mapRect = document.getElementById('map').getBoundingClientRect();
     var clickPoint = map.latLngToContainerPoint(clickLatLng);
     var barRect = infoBar.getBoundingClientRect();
-    var barTop = barRect.top - mapRect.top, barBottom = barRect.bottom - mapRect.top, barLeft = barRect.left - mapRect.left;
-    if (clickPoint.y < barTop - INFO_BAR_PAN_CLEARANCE || clickPoint.y > barBottom + INFO_BAR_PAN_CLEARANCE) return; // Click isn't even near the bar's own vertical span
-    var desiredMaxX = barLeft - INFO_BAR_PAN_CLEARANCE;
-    if (clickPoint.x <= desiredMaxX) return; // Already clear - the common case, most clicks don't land anywhere near the bar
-    var deltaX = clickPoint.x - desiredMaxX;
+    var barTop = barRect.top - mapRect.top, barLeft = barRect.left - mapRect.left;
+    var desiredMaxX = barLeft - INFO_BAR_PAN_CLEARANCE, desiredMaxY = barTop - INFO_BAR_PAN_CLEARANCE;
+    // Only actually under the bar if BOTH past its left edge AND past its top edge - being past just one of
+    // the two (e.g. far above the bar but at some arbitrary x) isn't an obstruction at all.
+    if (!(clickPoint.x > desiredMaxX && clickPoint.y > desiredMaxY)) return; // Already clear - the common case, most clicks don't land anywhere near the bar
+    var deltaX = clickPoint.x - desiredMaxX, deltaY = clickPoint.y - desiredMaxY;
     var centerPoint = map.getSize().divideBy(2);
-    map.panTo(map.containerPointToLatLng(centerPoint.add([deltaX, 0])), { animate: true });
+    var shift = deltaX <= deltaY ? [deltaX, 0] : [0, deltaY]; // whichever edge is closer to clear
+    map.panTo(map.containerPointToLatLng(centerPoint.add(shift)), { animate: true });
 }
 
 function showInfoBar(center, rings, title, rows) {
