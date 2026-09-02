@@ -45,7 +45,7 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
         }
         #load-progress, #zoom-hint { z-index: 500; padding: 8px 12px; }
-        #legend { margin: 0 0 8px 16px; width: max-content; max-width: calc(100% - 32px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px 12px; pointer-events: auto; }
+        #legend { margin: 0 0 8px 8px; width: max-content; max-width: calc(100% - 16px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px; pointer-events: auto; }
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
         .swatch { width: 13px; height: 13px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); }
@@ -67,7 +67,7 @@
         .info-pointer-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 599; filter: drop-shadow(0 4px 16px rgba(0,0,0,.25)); }
         #info-pointer-line, #info-pointer-shape { display: none; }
         #info-pointer-line.visible, #info-pointer-shape.visible { display: inline; }
-        .info-bar { display: none; position: absolute; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; background: transparent; font-size: var(--font-body); color: #333; }
+        .info-bar { display: none; position: absolute; z-index: 600; bottom: 8px; right: 8px; width: 250px; padding: 8px; background: transparent; font-size: var(--font-body); color: #333; }
         .info-bar.visible { display: block; }
         .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
         .info-bar table { border-collapse: collapse; width: 100%; table-layout: fixed; }
@@ -401,14 +401,14 @@ infoPointerLine.setAttribute('stroke', '#666');
 
 L.DomEvent.disableClickPropagation(infoBar); // Otherwise a click on the close button (or anywhere else in the bar) would bubble to the map's own click handler below and immediately reopen/move the bar wherever it happens to be sitting on screen
 
-// The bar's own bottom offset isn't a fixed 16px - #sources-bar (the full-width strip along the map's own
+// The bar's own bottom offset isn't a fixed 8px - #sources-bar (the full-width strip along the map's own
 // bottom edge) can be taller or shorter depending on how many lines its citation links wrap to, so this reads
-// its real rendered height and sits the standard 16px margin above THAT instead of a value that would either
+// its real rendered height and sits the standard 8px margin above THAT instead of a value that would either
 // leave a gap or actually overlap it depending on how long that text happens to be.
 function updateInfoBarBottomOffset() {
     var mapRect = document.getElementById('map').getBoundingClientRect();
     var sourcesBarRect = document.getElementById('sources-bar').getBoundingClientRect();
-    infoBar.style.bottom = (mapRect.bottom - sourcesBarRect.top + 16) + 'px';
+    infoBar.style.bottom = (mapRect.bottom - sourcesBarRect.top + 8) + 'px';
 }
 updateInfoBarBottomOffset();
 window.addEventListener('resize', updateInfoBarBottomOffset);
