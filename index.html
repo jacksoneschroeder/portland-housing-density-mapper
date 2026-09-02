@@ -251,10 +251,10 @@ var LEGEND_SOURCES = [
     ['Metro "Taxlots (Public)" Feature Layer', CITATIONS.taxlotsPublic],
     ['Portland "Zoning" Feature Layer', CITATIONS.portlandZoningLayer],
     ['Metro Zoning Generalized Classifications', CITATIONS.metroZoneClass],
-    ['Portland City Code 33.110.265 (Residential Infill Options)', CITATIONS.ripCode],
-    ['Portland City Code 33.120.212 (Multi-Dwelling Zones)', CITATIONS.multiDwellingCode],
-    ['Portland City Code Ch. 33.130 (Commercial/Mixed Use Zones)', CITATIONS.commercialMixedUseCode],
-    ['Portland City Code 33.610.100 (Lots in RF Through R2.5 Zones)', CITATIONS.singleDwellingLotCode],
+    ['Portland City Code 33.110.265', CITATIONS.ripCode],
+    ['Portland City Code 33.120.212', CITATIONS.multiDwellingCode],
+    ['Portland City Code Ch. 33.130', CITATIONS.commercialMixedUseCode],
+    ['Portland City Code 33.610.100', CITATIONS.singleDwellingLotCode],
 ];
 document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
     return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
