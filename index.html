@@ -164,6 +164,7 @@
         <h4><a href="#" id="base-zones-link" target="_blank" rel="noopener">Portland Residential Base Zones</a></h4>
         <table id="zone-density-table"></table>
         <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on Portland City Code 33.110.265.G.</p>
+        <p id="far-note"></p>
 
         <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
         <p id="metro-fallback-text"></p>
@@ -533,11 +534,10 @@ function buildDensityInfoModal() {
     rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft - Portland City Code 33.120.212)');
     rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code 33.610.100)');
     rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code Ch. 33.130)');
-    // Grouped by (FAR ratio, citation) so zones sharing both collapse into one row (e.g. RM4/RX both 4:1 under
-    // 33.120.210) - every zone here has a real FAR limit but no maximum-density standard at all, confirmed
-    // directly against each chapter's own development-standards summary table. See taxlotMaximumDensity's own
-    // comment for why the FAR-to-units conversion assumes 500 sq ft/unit, and why the real max is whichever of
-    // that or Metro's own zoneClass estimate is lower.
+    // Grouped by (FAR ratio, citation) so zones sharing both collapse into one row (e.g. RM4/RX both 4 to 1
+    // under 33.120.210) - every zone here has a real FAR limit but no maximum-density standard at all,
+    // confirmed directly against each chapter's own development-standards summary table. The FAR-to-units
+    // methodology itself is explained once, in #far-note below, rather than repeated on every row.
     var farGroups = {};
     Object.keys(formulas.farValues).forEach(function(zone) {
         var f = formulas.farValues[zone], key = f.far + '|' + f.citation;
@@ -545,7 +545,7 @@ function buildDensityInfoModal() {
     });
     Object.keys(farGroups).forEach(function(key) {
         var g = farGroups[key];
-        rows.push('<tr><td>' + g.zones.join(', ') + '<td>No<td>' + g.far + ':1 FAR ÷ ' + formulas.farUnitSizeSqft + ' sq ft/unit assumed, or Metro\'s Zoning Generalized Classification if lower (' + g.citation + ')');
+        rows.push('<tr><td>' + g.zones.join(', ') + '<td>No<td>Maximum FAR of ' + g.far + ' to 1 (' + g.citation + ')');
     });
     // Household Living is genuinely prohibited (CI1) or limited to only a narrow existing-hotel/motel-to-
     // affordable-housing conversion (EG1/EG2) - grouped the same way as the FAR rows above, by shared citation.
@@ -558,6 +558,7 @@ function buildDensityInfoModal() {
         rows.push('<tr><td>' + noUnitsGroups[citation].join(', ') + '<td>No<td>0 du/ac - Household Living is prohibited or all-but-prohibited (' + citation + ')');
     });
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
+    document.getElementById('far-note').textContent = 'Portland City Code caps some zones\' densities by FAR, not units/acre. Here, dwelling units are assumed to be at least ' + formulas.farUnitSizeSqft + ' sq ft. Then, the maximum zoned capacity is whichever is less: the FAR times the lot size divided by ' + formulas.farUnitSizeSqft + ' sq ft/du, or Metro\'s Zoning Generalized Classification.';
 
     document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot does not have data for a Portland zone code, or uses them as an upper bound on a FAR-derived unit ceiling for a Portland zone code with a real FAR limit but no maximum-density standard of its own.';
 
