@@ -35,10 +35,7 @@
         #map { width: 100%; height: 100%; }
 
         /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
-        /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves
-        a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow
-        clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that
-        actually have visible content. */
+        /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
         #load-progress, #zoom-hint {
             position: absolute; z-index: 500; background: #fff; border: 1px solid #ddd; border-radius: 8px;
@@ -50,8 +47,9 @@
         .swatch { width: 13px; height: 13px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); }
         .legend-bar { display: flex; width: 140px; height: 14px; border-radius: 3px; overflow: hidden; border: 1px solid rgba(0,0,0,.15); }
         .legend-bar-seg { flex: 1; }
-        .legend-bar-labels { position: relative; width: 140px; height: 14px; margin-top: 2px; font-size: var(--font-small); }
-        .legend-bar-label { position: absolute; top: 0; transform: translateX(-50%); }
+        .legend-bar-labels { position: relative; width: 140px; height: 16px; margin-top: 3px; font-size: var(--font-small); }
+        .legend-bar-tick { position: absolute; top: -3px; width: 1px; height: 5px; background: #999; }
+        .legend-bar-label { position: absolute; top: 2px; }
         #legend-compass-scale { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; }
         #north-arrow { font-weight: bold; text-align: center; line-height: 1.1; }
         #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
@@ -62,11 +60,7 @@
         #load-progress { top: 8px; right: 8px; }
         .hidden { display: none; }
 
-        /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely
-        outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own
-        "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map
-        pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white
-        rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
+        /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
         .info-pointer-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 599; filter: drop-shadow(0 4px 16px rgba(0,0,0,.25)); }
         #info-pointer-line, #info-pointer-shape { display: none; }
         #info-pointer-line.visible, #info-pointer-shape.visible { display: inline; }
@@ -127,11 +121,7 @@
 
     <div id="map-wrap">
         <div id="map">
-            <!-- Siblings of Leaflet's own internally-managed panes (not of #map itself) - Leaflet's panes use
-            CSS transforms for pan/zoom performance, which each establishes its own stacking context, so a
-            pointer SVG placed OUTSIDE #map entirely (a sibling of it, in #map-wrap) had correct coordinates
-            but wasn't reliably painting on top of that content. Matches where this project's TOD-PITCH sibling
-            places its own equivalent elements. Leaflet's own container init doesn't clear existing children. -->
+            <!-- Siblings of Leaflet's own internally-managed panes (not of #map itself) - Leaflet's panes use CSS transforms for pan/zoom performance, which each establishes its own stacking context, so a pointer SVG placed OUTSIDE #map entirely (a sibling of it, in #map-wrap) had correct coordinatesbut wasn't reliably painting on top of that content. Matches where this project's TOD-PITCH sibling places its own equivalent elements. Leaflet's own container init doesn't clear existing children. -->
             <svg id="info-pointer-svg" class="info-pointer-svg">
                 <line id="info-pointer-line" stroke-width="1.5" stroke-linecap="round"></line>
                 <path id="info-pointer-shape" fill="#fff"></path>
@@ -369,11 +359,16 @@ function rebuildLegend() {
         return;
     }
     var bar = '<div class="legend-bar">' + bins.colors.map(function(c) { return '<div class="legend-bar-seg" style="background:' + c + '"></div>'; }).join('') + '</div>';
-    // 0 always anchors the left edge (density can't be negative, so it's a real, meaningful lower bound) -
-    // left-aligned rather than centered like the internal boundary labels, so it doesn't hang off the bar's
-    // own edge. The right edge stays unlabeled - it's a genuine "≥" open range with no fixed number to show.
-    var labels = '<div class="legend-bar-labels"><span class="legend-bar-label" style="left:0;transform:none">0</span>' + bins.boundaries.map(function(b, i) {
-        return '<span class="legend-bar-label" style="left:' + ((i + 1) / bins.colors.length * 100) + '%">' + b + '</span>';
+    // Density can't be negative, so 0 is a real, meaningful lower bound worth a tick+label just like every
+    // real threshold - unlike the right edge, which is a genuine open-ended "≥" range with no fixed number to
+    // show. Each tick sits exactly where its own bin begins, with the value left-aligned just to its right,
+    // rather than centered on the boundary - so which side a boundary VALUE itself belongs to (e.g. is 44
+    // light or dark blue, when the threshold is 44?) is never ambiguous: the label visually starts the
+    // segment it's the lower bound of, matching the real >= comparison colorForDensity itself uses.
+    var allBoundaries = [0].concat(bins.boundaries);
+    var labels = '<div class="legend-bar-labels">' + allBoundaries.map(function(b, i) {
+        var pct = i / bins.colors.length * 100;
+        return '<span class="legend-bar-tick" style="left:' + pct + '%"></span><span class="legend-bar-label" style="left:calc(' + pct + '% + 2px)">' + b + '</span>';
     }).join('') + '</div>';
     el.innerHTML = bar + labels;
 }
@@ -749,14 +744,16 @@ function drawLegendBox(ctx, dpr, bottomOffset) {
         var legendBarY = topY + titleH, legendSegW = legendBarW / bins.colors.length;
         bins.colors.forEach(function(c, i) { ctx.fillStyle = c; ctx.fillRect(keyX + legendSegW * i, legendBarY, legendSegW, legendBarH); });
         ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = dpr; ctx.strokeRect(keyX, legendBarY, legendBarW, legendBarH);
-        // 0 always anchors the left edge (density can't be negative) - left-aligned, not centered like the
-        // internal boundary labels, so it doesn't draw off the bar's own edge. The right edge stays
-        // unlabeled - it's a genuine "≥" open range with no fixed number to show.
-        ctx.fillStyle = '#333';
-        ctx.fillText('0', keyX, legendBarY + legendBarH + 4 * dpr);
-        ctx.textAlign = 'center';
-        bins.boundaries.forEach(function(b, i) { ctx.fillText(b, keyX + legendSegW * (i + 1), legendBarY + legendBarH + 4 * dpr); });
-        ctx.textAlign = 'left';
+        // Same tick+label-starts-the-segment convention as the on-screen legend (see rebuildLegend's own
+        // comment for the full reasoning) - a tick exactly at each bin's own start, its value drawn just to
+        // the tick's right rather than centered on it, so a boundary value's own bin is never ambiguous.
+        var allBoundaries = [0].concat(bins.boundaries);
+        ctx.fillStyle = '#333'; ctx.strokeStyle = '#999'; ctx.lineWidth = dpr;
+        allBoundaries.forEach(function(b, i) {
+            var tx = keyX + legendSegW * i;
+            ctx.beginPath(); ctx.moveTo(tx, legendBarY + legendBarH); ctx.lineTo(tx, legendBarY + legendBarH + 5 * dpr); ctx.stroke();
+            ctx.fillText(b, tx + 2 * dpr, legendBarY + legendBarH + 4 * dpr);
+        });
     }
 
     // North arrow to the left of the scale bar, below the color key
