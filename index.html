@@ -76,7 +76,7 @@
         .modal-close { background: none; border: none; font-size: var(--font-body); line-height: 1; cursor: pointer; color: #888; }
         .modal-close:hover { color: #333; }
         .modal-box h4 { font-size: var(--font-small); text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 16px 0 6px; }
-        .modal-box p { margin: 0 0 6px; font-size: var(--font-body); color: #555; }
+        .modal-box p { margin: 0 0 6px; font-size: var(--font-body); }
         .modal-box table { width: 100%; border-collapse: collapse; font-size: var(--font-body); margin-bottom: 4px; }
         .modal-box td, .modal-box th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #eee; }
         .modal-box th { color: #888; font-weight: normal; }
@@ -553,13 +553,13 @@ function buildDensityInfoModal() {
         // housing, prohibited otherwise. Which taxlots that ends up covering depends on what's already built
         // on them, not anything the zoning code itself designates - so "none" for this model's own purposes.
         if (zone === 'EX') {
-            rows.push('<tr><td>EG1, EG2<td>No<td>None (for the purposes of this model, because residential development is only allowed on very specific taxlots within this zone - Portland City Code 33.140.100)');
+            rows.push('<tr><td>EG1, EG2<td>No<td>None (for the purposes of this model, because residential development is only allowed on very specific taxlots within this zone; Portland City Code 33.140.100)');
         }
     });
     // Same Chapter 33.150 as CI2/IR above - Household Living is flatly prohibited, confirmed against Table 150-1.
     rows.push('<tr><td>CI1<td>No<td>None (Portland City Code 33.150.100)');
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
-    document.getElementById('far-note').textContent = 'Portland City Code caps some zones\' densities by FAR, not units/acre. Here, dwelling units are assumed to be at least ' + formulas.farUnitSizeSqft + ' sq ft. Then, the maximum zoned capacity is whichever is less: the FAR multiplied by the lot size, then divided by ' + formulas.farUnitSizeSqft + ' sq ft/du, or Metro\'s Zoning Generalized Classification.';
+    document.getElementById('far-note').textContent = 'Portland City Code caps some zones\' densities by FAR, not du/ac. Here, dwelling units are assumed to be at least ' + formulas.farUnitSizeSqft + ' sq ft. Then, the maximum zoned capacity is whichever is less: the FAR multiplied by the lot size, then divided by ' + formulas.farUnitSizeSqft + ' sq ft/du, or Metro\'s Zoning Generalized Classification.';
 
     document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot does not have data for a Portland zone code, or uses them as an upper bound on a FAR-derived unit ceiling for a Portland zone code with a real FAR limit but no maximum-density standard of its own.';
 
