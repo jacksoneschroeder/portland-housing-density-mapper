@@ -28,6 +28,7 @@
 // message (index.html, and this worker's own postMessage contract) is completely unaffected by the format
 // change - the reconstruction is real per-taxlot object allocation (unavoidable, that's what index.html
 // actually needs), but it's fast compared to the fetch/decompress/parse this already does.
+//
 // True on a plain local dev server (127.0.0.1/localhost) - just adds a reassuring note onto the warning
 // below so the 404 this route always produces locally (it only resolves once actually deployed behind the
 // Cloudflare Worker) doesn't read as a real bug.
@@ -48,11 +49,12 @@ self.onmessage = function(e) {
     });
 };
 
-// Byte-level progress via a counting TransformStream. Content-Length reflects the compressed bytes actually transferred over the wire,
-// so the counting TransformStream below sits BEFORE the DecompressionStream and counts raw compressed
-// bytes as they arrive - counting post-decompression bytes instead (as an earlier version of this did)
-// would race ahead of the real transfer, since decompressed output is ~3x larger than what's actually been
-// received, and then sit stuck at the 99% clamp for however much of the real download was still in flight.
+// Byte-level progress via a counting TransformStream. Content-Length reflects the compressed bytes actually
+// transferred over the wire, so the counting TransformStream below sits BEFORE the DecompressionStream and
+// counts raw compressed bytes as they arrive - counting post-decompression bytes instead (as an earlier
+// version of this did) would race ahead of the real transfer, since decompressed output is ~3x larger than
+// what's actually been received, and then sit stuck at the 99% clamp for however much of the real download
+// was still in flight.
 function fetchAndParse(url) {
     return fetch(url).then(function(response) {
         if (!response.ok) throw new Error('Fetch of ' + url + ' failed: ' + response.status + ' ' + response.statusText);

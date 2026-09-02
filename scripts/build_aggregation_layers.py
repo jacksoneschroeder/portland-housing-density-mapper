@@ -110,9 +110,9 @@ def taxlot_maximum_units(zone, sqft, acres, existing_units, metro_zone):
     # (RM1-4/RX), and any other zone this tool has no dedicated formula for; everything else
     # (commercial/industrial/unmodeled) falls back to the parcel's own existing units - the same "no known
     # ceiling to compare against" convention index.html itself already uses (taxlotMaximumDensity's own final
-    # fallback branch), rather than fabricating a number or silently excluding the parcel from area aggregates (which would
-    # skew the denominator inconsistently). Each real formula's own number is reported as-is, even when a
-    # taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - it's a real
+    # fallback branch), rather than fabricating a number or silently excluding the parcel from area aggregates
+    # (which would skew the denominator inconsistently). Each real formula's own number is reported as-is, even
+    # when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - it's a real
     # zoning-code ceiling, not a claim about what's already built, so it never gets bumped up to match existing.
     if zone == 'RMP':
         return int(RMP_UNITS_PER_ACRE * acres)
