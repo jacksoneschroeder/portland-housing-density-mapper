@@ -369,7 +369,10 @@ function rebuildLegend() {
         return;
     }
     var bar = '<div class="legend-bar">' + bins.colors.map(function(c) { return '<div class="legend-bar-seg" style="background:' + c + '"></div>'; }).join('') + '</div>';
-    var labels = '<div class="legend-bar-labels">' + bins.boundaries.map(function(b, i) {
+    // 0 always anchors the left edge (density can't be negative, so it's a real, meaningful lower bound) -
+    // left-aligned rather than centered like the internal boundary labels, so it doesn't hang off the bar's
+    // own edge. The right edge stays unlabeled - it's a genuine "≥" open range with no fixed number to show.
+    var labels = '<div class="legend-bar-labels"><span class="legend-bar-label" style="left:0;transform:none">0</span>' + bins.boundaries.map(function(b, i) {
         return '<span class="legend-bar-label" style="left:' + ((i + 1) / bins.colors.length * 100) + '%">' + b + '</span>';
     }).join('') + '</div>';
     el.innerHTML = bar + labels;
@@ -746,7 +749,12 @@ function drawLegendBox(ctx, dpr, bottomOffset) {
         var legendBarY = topY + titleH, legendSegW = legendBarW / bins.colors.length;
         bins.colors.forEach(function(c, i) { ctx.fillStyle = c; ctx.fillRect(keyX + legendSegW * i, legendBarY, legendSegW, legendBarH); });
         ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = dpr; ctx.strokeRect(keyX, legendBarY, legendBarW, legendBarH);
-        ctx.fillStyle = '#333'; ctx.textAlign = 'center';
+        // 0 always anchors the left edge (density can't be negative) - left-aligned, not centered like the
+        // internal boundary labels, so it doesn't draw off the bar's own edge. The right edge stays
+        // unlabeled - it's a genuine "≥" open range with no fixed number to show.
+        ctx.fillStyle = '#333';
+        ctx.fillText('0', keyX, legendBarY + legendBarH + 4 * dpr);
+        ctx.textAlign = 'center';
         bins.boundaries.forEach(function(b, i) { ctx.fillText(b, keyX + legendSegW * (i + 1), legendBarY + legendBarH + 4 * dpr); });
         ctx.textAlign = 'left';
     }
