@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # One-time enrichment: adds Portland's own real zoning code (portlandZoneClass, e.g. "R5"/"R2.5" - Metro's
-# zoneClass/zoneGenClass fields are a REGIONAL generalized classification, not Portland's native zone codes),
-# real assessor lot square footage (sqft, falling back to acres*43560 only when the assessor has no record
-# for that taxlot - see this script's own "unmatched" count), and a Residential Infill Project (RIP) existing-
-# max-density figure (ripMaxUnits) to every Portland taxlot already classified residential (SFR1/2/3, MFR3-6)
-# by Metro's own join in build_taxlot_dataset.py. Scoped to Portland only (not the whole 3-county region) -
-# RIP is a Portland City Code program (Chapter 33.110), not a regional one, and MUR (mixed-use) taxlots are
-# out of scope too - RIP's minimum-lot-size table (see RIP_SIXPLEX_MIN_SQFT/COTTAGE_CLUSTER_MIN_SQFT below)
-# only ever applies to Portland's single-dwelling R20/R10/R7/R5/R2.5 zones, which is exactly what SFR/MFR
-# taxlots are already zoned under - MUR covers separate mixed-use zone codes (RX/CM/etc.) governed by an
-# entirely different code chapter.
+# zoneClass/zoneGenClass fields are a REGIONAL generalized classification, not Portland's native zone codes)
+# to every Portland taxlot already classified residential (SFR/MFR/MUR) by Metro's own join in
+# build_taxlot_dataset.py, plus real assessor lot square footage (sqft, falling back to acres*43560 only when
+# the assessor has no record for that taxlot - see this script's own "unmatched" count) and a Residential
+# Infill Project (RIP) existing-max-density figure (ripMaxUnits) for the subset of those that land in an
+# RIP-eligible zone. Scoped to Portland only (not the whole 3-county region) - RIP is a Portland City Code
+# program (Chapter 33.110), not a regional one. RIP's minimum-lot-size table (see
+# RIP_SIXPLEX_MIN_SQFT/COTTAGE_CLUSTER_MIN_SQFT below) only ever applies to Portland's single-dwelling
+# R20/R10/R7/R5/R2.5 zones - a real taxlot's zoneClass (SFR/MFR/MUR) doesn't determine RIP eligibility on its
+# own, only the real portlandZoneClass this script's own zoning join produces does, which is why the sqft
+# fetch below is scoped to rip_eligible (computed after the join) rather than the wider portland_res.
 #
 # portlandZoneClass: point-in-polygon join against the City of Portland's own zoning layer
 # (COP_OpenData_ZoningCode/MapServer/16, field ZONE) - confirmed via direct inspection to carry real distinct

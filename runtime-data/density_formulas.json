@@ -5,7 +5,10 @@
   "cottageClusterMaxUnits": 16,
   "cottageClusterSqftPerUnit": 1000,
   "rmpUnitsPerAcre": 29,
+  "crUnitsPerAcre": 17.424,
+  "rfUnitsPerAcre": 0.5,
   "noCapZones": ["RM1", "RM2", "RM3", "RM4", "RX"],
+  "farCappedZones": ["CM1", "CM2", "CM3", "CE", "CX"],
   "residentialMetroPrefixes": ["SFR", "MFR", "MUR"],
   "residentialPortlandZones": ["RF", "R20", "R10", "R7", "R5", "R2.5", "RM1", "RM2", "RM3", "RM4", "RX", "RMP", "CR", "CM1", "CM2", "CM3", "CE", "CX"],
   "zoneClassDensity": {

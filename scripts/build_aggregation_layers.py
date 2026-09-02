@@ -6,12 +6,17 @@
 # taxlot whose centroid falls inside it (point-in-polygon, grid-indexed for speed - a naive O(polygons x
 # taxlots) join would be tens of billions of ops), plus a computed max-density figure where one exists.
 #
-# Portland's own zoning code does NOT cap multi-dwelling zones (RM1-4/RX) by a flat units/acre number -
-# density there is controlled by Floor Area Ratio and other bulk standards instead (confirmed via Portland
-# City Code 33.120, Table 120-3: "no maximum" for RM1/RM2/RM3/RM4/RX; only RMP, a manufactured-dwelling-park
-# zone, has one: 1 unit/1,500 sq ft). Only the R-zones (R20/R10/R7/R5/R2.5, RIP-eligible) get a real computed
-# max-density number here, using the same RIP formula as index.html's own computeRipMaxUnits. Every other
-# zone's max density is honestly reported as not applicable rather than a fabricated number.
+# Portland's own zoning code does NOT cap multi-dwelling zones (RM1-4/RX) or commercial/mixed-use zones
+# (CM1-3/CE/CX) by a flat units/acre number - density there is controlled by Floor Area Ratio and other bulk
+# standards instead (confirmed via Portland City Code 33.120 Table 120-3 for RM1-4/RX, and 33.130 Table 130-2
+# for CM1-3/CE/CX - neither table has a Maximum Density row for those zones at all). Real flat caps exist for
+# three zones only: RMP (1 unit/1,500 sq ft), CR (1 unit/2,500 sq ft, footnote [1] on Table 130-2, conditional
+# on no Retail Sales/Service or Office use - this tool has no per-taxlot use-type field to check that
+# condition, so it's applied unconditionally as a best-effort estimate), and RF (1 unit/87,120 sq ft, Table
+# 610-1 Standard C - attached houses aren't allowed in RF at all, so this is the only standard that applies).
+# The R-zones (R20/R10/R7/R5/R2.5, RIP-eligible) get a real computed max-density number using the same RIP
+# formula as index.html's own ripMaximumUnits. Every other zone's max density is estimated from Metro's own
+# generalized zoneClass density table instead of a real Portland-code number.
 #
 # Run with: python3 scripts/build_aggregation_layers.py
 # Reads: Non-essential data/portland_rip_zoning_checkpoint.json, runtime-data/taxlot_density_data.json.gz,
@@ -34,11 +39,9 @@ TIGERWEB_URL = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tr
 MAX_RETRIES = 6
 RETRY_TRANSIENT_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, OSError)
 
-# Single source of truth for every zoning/density constant below, shared with portland-housing-density-mapper.html
-# (which fetches this same file) so the two can never silently drift the way they once did - see this
-# project's own history for the real bug that came from keeping two hand-copied constant tables in sync.
-# index.html has its own older, hand-entered copy of these same figures (predates this file) - it doesn't
-# read this JSON, so it's the one place left that has to be updated by hand if these numbers ever change.
+# Single source of truth for every zoning/density constant below - index.html fetches this exact same file
+# at runtime, so the two can never silently drift the way they once did (see this project's own history for
+# the real bug that came from keeping two hand-copied constant tables in sync instead).
 with open(os.path.join(RUNTIME_DATA_DIR, 'density_formulas.json')) as _f:
     DENSITY_FORMULAS = json.load(_f)
 
@@ -63,31 +66,33 @@ def rip_max_units(zone, sqft):
     return best
 
 
-# Portland City Code 33.120 Table 120-3 - confirmed real via direct lookup, not guessed. RMP is the one
-# multi-dwelling zone with an actual flat cap (RMP_UNITS_PER_ACRE below); RM1-4/RX have none at all
-# (FAR-limited instead) - for those (and for MUR-zoned taxlots, which never carry a portlandZoneClass at
-# all - see add_portland_rip_density.py's own comment on why its RIP fetch only ever covers SFR/MFR-classified
-# taxlots), fall back to Metro's own generalized zoneClass density figure as an approximation
-# (ZONE_CLASS_DENSITY below).
+# Portland City Code 33.120 Table 120-3 - confirmed real via direct lookup, not guessed. RM1-4/RX have no
+# flat cap at all (FAR-limited instead) - those fall back to Metro's own generalized zoneClass density figure
+# as an approximation (ZONE_CLASS_DENSITY below).
 NO_CAP_ZONES = set(DENSITY_FORMULAS['noCapZones'])
 
-# Metro's own generalized zoning density table (Metro RLIS zoning metadata), full SFR/MFR/MUR coverage.
-# RM1-4/RX map to it because the city code leaves them genuinely uncapped (confirmed near-1:1 real-data
-# mapping: RM1->MFR3 (100%), RM2->MFR4 (100%), RM3->MFR5 (100%), RM4->MFR6 (99%)); MUR-zoned taxlots map to
-# it because portlandZoneClass is simply never populated for them in the first place - not because they're
-# uncapped by the same city-code fact.
+# Portland City Code 33.130 Table 130-2 - same "no flat cap" situation as RM1-4/RX above, but a distinct real
+# reason (city code chapter/table) worth keeping separate: these are capped by Floor Area Ratio under Table
+# 130-2, which simply has no Maximum Density row for CM1/CM2/CM3/CE/CX at all. Also falls back to
+# ZONE_CLASS_DENSITY.
+FAR_CAPPED_ZONES = set(DENSITY_FORMULAS['farCappedZones'])
+
+# Metro's own generalized zoning density table (Metro RLIS zoning metadata), full SFR/MFR/MUR coverage - the
+# fallback estimate for every zone with no real flat Portland-code cap (NO_CAP_ZONES, FAR_CAPPED_ZONES) or no
+# dedicated formula in this tool at all.
 ZONE_CLASS_DENSITY = DENSITY_FORMULAS['zoneClassDensity']
 RMP_UNITS_PER_ACRE = DENSITY_FORMULAS['rmpUnitsPerAcre']  # Portland City Code 33.120 Table 120-3 - real, 1 unit/1,500 sq ft
+CR_UNITS_PER_ACRE = DENSITY_FORMULAS['crUnitsPerAcre']  # Portland City Code 33.130 Table 130-2 footnote [1] - real, 1 unit/2,500 sq ft (conditional on no Retail Sales/Service or Office use; applied unconditionally here, no per-taxlot use-type field to check)
+RF_UNITS_PER_ACRE = DENSITY_FORMULAS['rfUnitsPerAcre']  # Portland City Code Ch. 33 Table 610-1 Standard C - real, 1 unit/87,120 sq ft
 
 # A parcel/area is only kept if residential use is genuinely allowed there - "low density" on commercial,
 # industrial, or park land doesn't mean underused housing capacity, it means housing isn't zoned for that
-# land at all. Metro's zoneClass (SFR/MFR/MUR prefix) has full coverage on every taxlot, unlike
-# portlandZoneClass, which is a clean 100%/0% split by zone family rather than a partial gap: every
-# SFR/MFR-classified Portland taxlot has one (add_portland_rip_density.py's fetch covers that whole scope),
-# every MUR-classified one has none (RIP doesn't apply there at all, so it was never in scope to begin with) -
-# so it's the filter used at the taxlot level, everywhere taxlots feed into these datasets. Zoning-polygon
-# mode additionally filters by each polygon's own real Portland zone code (Title 33.110 single-dwelling +
-# 33.120 multi-dwelling zones) - the more precise signal when a whole zone, not a taxlot, is what's shown.
+# land at all. Metro's zoneClass (SFR/MFR/MUR prefix) has full coverage on every taxlot, and so does
+# portlandZoneClass now (add_portland_rip_density.py's join covers every SFR/MFR/MUR-classified Portland
+# taxlot, not just SFR/MFR) - so either signal works as the filter used at the taxlot level, everywhere
+# taxlots feed into these datasets. Zoning-polygon mode additionally filters by each polygon's own real
+# Portland zone code (Title 33.110 single-dwelling + 33.120 multi-dwelling + 33.130 commercial/mixed-use
+# zones) - the more precise signal when a whole zone, not a taxlot, is what's shown.
 RESIDENTIAL_METRO_PREFIXES = tuple(DENSITY_FORMULAS['residentialMetroPrefixes'])
 RESIDENTIAL_PORTLAND_ZONES = set(DENSITY_FORMULAS['residentialPortlandZones'])
 
@@ -99,16 +104,20 @@ def is_residential_metro_zone(metro_zone):
 def taxlot_maximum_units(zone, sqft, acres, existing_units, metro_zone):
     # A per-taxlot "maximum allowed units" number, always defined, for aggregating a real "maximum density" onto
     # zoning polygons/blocks/tracts the same way existingUnits is already aggregated (sum of units / sum of
-    # acres). Precedence: a real known city-code number (RMP) first; then the real RIP computation for
-    # R-zones; then Metro's generalized zoneClass figure as a labeled estimate - this covers both the zones
-    # the city code genuinely leaves uncapped (RM1-4/RX) AND MUR-zoned taxlots, whose portlandZoneClass is
-    # always None (add_portland_rip_density.py's RIP fetch only ever covers SFR/MFR-classified taxlots), not
-    # just the no-cap case; everything else (commercial/industrial/unmodeled) falls back to the parcel's own
-    # existing units - the same "no known ceiling to compare against" convention index.html itself already
-    # uses (existingMaxUnitsForTaxlot), rather than fabricating a number or silently excluding the parcel
-    # from area aggregates (which would skew the denominator inconsistently).
+    # acres). Precedence: a real known city-code flat cap (RMP, CR, RF) first; then the real RIP computation
+    # for R-zones; then Metro's generalized zoneClass figure as a labeled estimate - this covers the zones the
+    # city code caps by FAR instead of units/acre (CM1-3/CE/CX) or leaves genuinely uncapped outright
+    # (RM1-4/RX), and any other zone this tool has no dedicated formula for; everything else
+    # (commercial/industrial/unmodeled) falls back to the parcel's own existing units - the same "no known
+    # ceiling to compare against" convention index.html itself already uses (existingMaxUnitsForTaxlot),
+    # rather than fabricating a number or silently excluding the parcel from area aggregates (which would
+    # skew the denominator inconsistently).
     if zone == 'RMP':
         return max(existing_units, int(RMP_UNITS_PER_ACRE * acres))
+    if zone == 'CR':
+        return max(existing_units, int(CR_UNITS_PER_ACRE * acres))
+    if zone == 'RF':
+        return max(existing_units, int(RF_UNITS_PER_ACRE * acres))
     if zone in RIP_SIXPLEX_MIN_SQFT:
         rip = rip_max_units(zone, sqft)
         if rip is not None:

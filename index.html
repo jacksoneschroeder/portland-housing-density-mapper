@@ -291,10 +291,11 @@ function fetchAndDecompress(url) {
     });
 }
 
-// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and any taxlot whose portlandZoneClass has no dedicated formula or is null because it falls outside every mapped zoning polygon) > existing units as a last resort.
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP/CR/RF's real flat city caps > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers CM1-3/CE/CX, which the city caps by FAR rather than units/acre; RM1-4/RX, which the city leaves uncapped outright; and any taxlot whose portlandZoneClass has no dedicated formula or is null because it falls outside every mapped zoning polygon) > existing units as a last resort.
 // Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
 var formulas = null; // populated once initialDataReady resolves
 var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
+var FAR_CAPPED_ZONES = {}; // built from formulas.farCappedZones once loaded - CM1-3/CE/CX: Table 130-2 has no Maximum Density row for these at all, capped by FAR instead (a distinct real-code reason from RM1-4/RX's own no-cap note, so it gets its own note text)
 
 function isResidentialMetroZone(zoneClass) {
     return new RegExp('^(' + formulas.residentialMetroPrefixes.join('|') + ')').test(zoneClass || '');
@@ -312,6 +313,8 @@ function taxlotMaximumDensity(t) {
     // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from.
     var existing = Math.round(t.existingDensity * t.acres), zone = t.portlandZoneClass, v, units;
     if (zone === 'RMP') { units = Math.max(existing, Math.floor(formulas.rmpUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RMP: 1 unit/1,500 sq ft)' }; }
+    if (zone === 'CR') { units = Math.max(existing, Math.floor(formulas.crUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code 33.130 Table 130-2)' }; }
+    if (zone === 'RF') { units = Math.max(existing, Math.floor(formulas.rfUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (1 unit per 87,120 sq ft - Portland City Code Ch. 33 Table 610-1)' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
         if (rip !== null) { units = Math.max(existing, rip); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RIP-eligible)' }; }
@@ -319,9 +322,9 @@ function taxlotMaximumDensity(t) {
     if (t.zoneClass in formulas.zoneClassDensity) {
         units = Math.max(existing, Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres));
         v = units / t.acres;
-        // Three real cases, not two: a known zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for (e.g. RF) > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
-        var note = zone in NO_CAP_ZONES ? 'the city sets no flat cap for ' + zone : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
-        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (estimated via Metro ' + t.zoneClass + ' because ' + note + ')' };
+        // Four real cases, not two: a zone the city caps by FAR instead of units/acre (CM1-3/CE/CX, Table 130-2 has no Maximum Density row for them) > a zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
+        var note = zone in FAR_CAPPED_ZONES ? 'Capped by FAR, not units/acre (Portland City Code Ch. 33 Table 130-2), so the density estimate falls back to Metro\'s Zoning Generalized Classifications' : zone in NO_CAP_ZONES ? 'the city sets no flat cap for ' + zone : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
+        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' because ' + note + ')' };
     }
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
 }
@@ -649,6 +652,7 @@ var initialDataReady = Promise.all([
 ]).then(function(results) {
     formulas = results[0];
     formulas.noCapZones.forEach(function(z) { NO_CAP_ZONES[z] = 1; });
+    formulas.farCappedZones.forEach(function(z) { FAR_CAPPED_ZONES[z] = 1; });
     function withCentroid(list) {
         return list.map(function(z) { return Object.assign(polygonCentroid(z.rings), z); });
     }
