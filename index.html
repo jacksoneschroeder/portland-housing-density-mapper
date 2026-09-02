@@ -192,11 +192,7 @@ var CITATIONS = {
     baseZonesCode: 'https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A',
     metroZoneClass: 'https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.',
     ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
-    multiDwellingCode: 'https://www.portland.gov/sites/default/files/code/120-md-zones_3.pdf',
-    commercialMixedUseCode: 'https://www.portland.gov/sites/default/files/code/130-c-zones_3.pdf',
-    employmentIndustrialCode: 'https://www.portland.gov/sites/default/files/code/140-ind-zones_1.pdf',
-    campusInstitutionalCode: 'https://www.portland.gov/sites/default/files/code/150-campus-inst-zones_1.pdf',
-    singleDwellingLotCode: 'https://www.portland.gov/sites/default/files/code/610-rf-r2.5-lots_0.pdf',
+    zoningCode: 'https://www.portland.gov/code/33',
 };
 document.getElementById('housing-link').href = CITATIONS.housing;
 document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
@@ -243,12 +239,7 @@ var LEGEND_SOURCES = [
     ['Metro "Taxlots (Public)" Feature Layer', CITATIONS.taxlotsPublic],
     ['Portland "Zoning" Feature Layer', CITATIONS.portlandZoningLayer],
     ['Metro Zoning Generalized Classifications', CITATIONS.metroZoneClass],
-    ['Portland City Code 33.110.265', CITATIONS.ripCode],
-    ['Portland City Code 33.120.212', CITATIONS.multiDwellingCode],
-    ['Portland City Code Ch. 33.130', CITATIONS.commercialMixedUseCode],
-    ['Portland City Code Ch. 33.140', CITATIONS.employmentIndustrialCode],
-    ['Portland City Code Ch. 33.150', CITATIONS.campusInstitutionalCode],
-    ['Portland City Code 33.610.100', CITATIONS.singleDwellingLotCode],
+    ['Portland City Code Ch. 33', CITATIONS.zoningCode],
 ];
 document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
     return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
@@ -306,7 +297,7 @@ function taxlotMaximumDensity(t) {
     // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from. Reports the formula's own number as-is, even when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - this is a real zoning-code ceiling, not a claim about what's already built, so it doesn't get bumped up to match existing.
     var zone = t.portlandZoneClass, v, units;
     if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft; Portland City Code 33.120.212)' }; }
-    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use"; Portland City Code Ch. 33.130)' }; }
+    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use"; Portland City Code 33.130.205)' }; }
     if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft; Portland City Code 33.610.100)' }; }
     if (zone in formulas.noUnitsZones) { return { value: 0, units: 0, label: '0 du/ac (Household Living is prohibited in ' + zone + '; ' + formulas.noUnitsZones[zone] + ')' }; }
     if (zone in formulas.ripSixplexMinSqft) {
@@ -525,7 +516,7 @@ function buildDensityInfoModal() {
     });
     rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft; Portland City Code 33.120.212)');
     rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code 33.610.100)');
-    rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code Ch. 33.130)');
+    rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code 33.130.205)');
     // Explicit display order groups zones by their real code chapter (33.120, then 33.130, then 33.140, then 33.150) instead of formulas.farValues's own insertion order, so a reader sees every zone from one chapter together - EX sits right above EG1/EG2 since all three are Chapter 33.140, and CI2/IR sit right above CI1 since all three are Chapter 33.150. Zones sharing both a FAR and a citation still collapse into one row (e.g. RM4/RX both 4:1 under 33.120.210). The FAR-to-units methodology itself is explained once, in #far-note below, rather than repeated on every row.
     var farZoneOrder = ['RM1', 'RM2', 'RM3', 'RM4', 'RX', 'CM1', 'CM2', 'CE', 'CM3', 'CX', 'EX', 'CI2', 'IR'];
     var seenFarGroups = {};
