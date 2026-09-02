@@ -40,7 +40,7 @@
         clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that
         actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
-        #load-progress, #zoom-hint, .info-bar {
+        #load-progress, #zoom-hint {
             position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
         }
@@ -59,19 +59,21 @@
         #load-progress { top: 16px; right: 16px; }
         .hidden { display: none; }
 
-        /* Fixed bottom-right popup with a CSS triangle tail - the map highlight shows location, so no per-click position math is needed. */
-        /* pointer-events: none so a shape underneath the popup (bottom-right by default, so a very likely overlap once selection persists across pans/zooms) stays clickable - only re-enabled on the close button below, the popup's one real interactive element. */
-        /* border-width doesn't render fractional values in Chromium (1.5px measured back as 1px even at 2x DPR)
-        - an inset box-shadow paints through a different pipeline that isn't snapped the same way, so it's used
-        here instead to get a real 1.5px edge; border is turned off so it doesn't also draw the shared 1px one. */
-        .info-bar { display: none; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25), inset 0 0 0 1.5px #ddd; pointer-events: none; border: none; }
+        /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely
+        outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own
+        "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map
+        pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white
+        rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
+        .info-pointer-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 599; filter: drop-shadow(0 4px 16px rgba(0,0,0,.25)); }
+        #info-pointer-line, #info-pointer-shape { display: none; }
+        #info-pointer-line.visible, #info-pointer-shape.visible { display: inline; }
+        .info-bar { display: none; position: absolute; z-index: 600; bottom: 16px; right: 16px; width: 250px; padding: 8px 10px; background: transparent; font-size: var(--font-body); color: #333; }
         .info-bar.visible { display: block; }
-        .info-bar.top-right { bottom: auto; top: 16px; }
         .info-bar b { display: block; text-align: center; margin-bottom: 4px; }
         .info-bar table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .info-bar td { padding: 2px 4px 2px 0; vertical-align: top; }
         .info-bar td:first-child { font-weight: bold; width: 46%; }
-        .info-bar button { position: absolute; top: 4px; right: 7px; background: none; border: none; font-size: var(--font-body); cursor: pointer; color: #888; pointer-events: auto; }
+        .info-bar button { position: absolute; top: 4px; right: 7px; background: none; border: none; font-size: var(--font-body); cursor: pointer; color: #888; }
         .info-bar button:hover { color: #333; }
 
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1000; align-items: center; justify-content: center; }
@@ -121,7 +123,22 @@
     </div>
 
     <div id="map-wrap">
-        <div id="map"></div>
+        <div id="map">
+            <!-- Siblings of Leaflet's own internally-managed panes (not of #map itself) - Leaflet's panes use
+            CSS transforms for pan/zoom performance, which each establishes its own stacking context, so a
+            pointer SVG placed OUTSIDE #map entirely (a sibling of it, in #map-wrap) had correct coordinates
+            but wasn't reliably painting on top of that content. Matches where this project's TOD-PITCH sibling
+            places its own equivalent elements. Leaflet's own container init doesn't clear existing children. -->
+            <svg id="info-pointer-svg" class="info-pointer-svg">
+                <line id="info-pointer-line" stroke-width="1.5" stroke-linecap="round"></line>
+                <path id="info-pointer-shape" fill="#fff"></path>
+            </svg>
+            <div class="info-bar" id="info-bar">
+                <button type="button" id="info-bar-close-btn">&times;</button>
+                <b id="info-bar-title"></b>
+                <table id="info-bar-table"></table>
+            </div>
+        </div>
         <div id="zoom-hint">Zoom in to see individual shapes</div>
         <div id="load-progress">Loading taxlots&hellip;</div>
         <div id="legend-stack">
@@ -137,11 +154,6 @@
                 </div>
             </div>
             <div id="sources-bar"></div>
-        </div>
-        <div class="info-bar" id="info-bar">
-            <button type="button" id="info-bar-close-btn">&times;</button>
-            <b id="info-bar-title"></b>
-            <table id="info-bar-table"></table>
         </div>
     </div>
 </div>
@@ -354,48 +366,111 @@ function densityForColor(mode, t) {
     return colorBy === 'existing' ? t.existingDensity : mode === 'taxlot' ? taxlotMaximumDensity(t).value : t.maximumDensity;
 }
 
-// Info popup: highlights the clicked shape on the map and stays open across pans/zooms (only an explicit close,
-// a new click, or a view-mode change - which swaps the whole dataset out from under it - clears it). A leader
-// line connects the popup's top-left corner to the shape's real centroid; since the popup's corner is a fixed
-// screen position rather than a map coordinate, that one endpoint has to be recomputed on every 'move'/'zoom' -
-// the other endpoint is a real LatLng, so Leaflet reprojects it automatically with no extra work.
+// Info popup: shows details for whichever shape is nearest a click, not the shape you literally hit. A single
+// map-level click handler (findNearestShape, below with redrawShapes) picks the closest shape in the current
+// view mode's dataset - point-in-polygon for a real hit, nearest-perimeter-distance as a fallback for a near-
+// miss (a street, a gap between parcels) - rather than requiring per-shape Leaflet click handlers, which is
+// what forced every rendered shape to carry its own interactive hit target before. That per-shape approach is
+// also what caused the earlier "hit or miss" clicking and cursor-detection problems this replaces: with
+// nothing left listening for click/hover on the shapes themselves, nothing can intercept a click meant for the
+// map underneath ever again. (Ported from this project's own TOD-PITCH sibling, which solved the same problem
+// the same way for its own taxlot popup.)
+//
+// The popup itself always docks bottom-right at a fixed position - it never flips corners depending on where
+// you clicked (which was its own source of inconsistent behavior for a large shape whose bounds straddle that
+// corner). If a click would land underneath it, the MAP pans left just far enough to clear it instead
+// (panMapClearOfInfoBar below) - the popup's position is a promise callers can rely on; the map moves around
+// that promise instead of the other way around.
+//
+// The connecting line and the popup's own visible card+border are both drawn as plain SVG, entirely outside
+// Leaflet's own layer/rendering system (pointer-events: none on the svg root, in the CSS itself, not something
+// that needed discovering through debugging). #info-bar itself is background: transparent - the white
+// rounded-rect people actually see is #info-pointer-shape's own fill, sized to match the bar's real
+// getBoundingClientRect() every time that might have changed. This also makes the border a real, crisp
+// sub-pixel stroke - unlike CSS border-width, SVG stroke-width isn't snapped to whole device pixels.
 var infoBar = document.getElementById('info-bar');
+var infoPointerLine = document.getElementById('info-pointer-line');
+var infoPointerShape = document.getElementById('info-pointer-shape');
 var highlightLayer = L.layerGroup().addTo(map);
-var connectorLine = null;
+var activeClickLatLng = null; // Re-read on every move/zoom so the pointer keeps aiming at the same real-world spot as the view changes
 
-function closeInfoBar() { infoBar.classList.remove('visible', 'top-right'); highlightLayer.clearLayers(); connectorLine = null; }
+// Same gray as the on-map highlight outline below (set once, straight from JS, rather than a second hardcoded copy in the SVG markup) - the popup's own border and the line pointing to it read as one continuous, consistently-colored shape.
+infoPointerShape.setAttribute('stroke', '#666');
+infoPointerShape.setAttribute('stroke-width', infoPointerLine.getAttribute('stroke-width'));
+infoPointerLine.setAttribute('stroke', '#666');
+
+L.DomEvent.disableClickPropagation(infoBar); // Otherwise a click on the close button (or anywhere else in the bar) would bubble to the map's own click handler below and immediately reopen/move the bar wherever it happens to be sitting on screen
+
+function closeInfoBar() {
+    infoBar.classList.remove('visible');
+    infoPointerLine.classList.remove('visible');
+    infoPointerShape.classList.remove('visible');
+    highlightLayer.clearLayers();
+    activeClickLatLng = null;
+}
 document.getElementById('info-bar-close-btn').onclick = closeInfoBar;
 
-function updateConnectorLine() {
-    if (!connectorLine) return;
-    var mapRect = document.getElementById('map').getBoundingClientRect(), boxRect = infoBar.getBoundingClientRect();
-    var corner = map.containerPointToLatLng([boxRect.left - mapRect.left, boxRect.top - mapRect.top]);
-    connectorLine.setLatLngs([connectorLine.getLatLngs()[0], corner]);
+function updateInfoPointer() {
+    if (!activeClickLatLng) return;
+    var mapSize = map.getSize();
+    var clickPoint = map.latLngToContainerPoint(activeClickLatLng);
+    // Clamped to the visible map area - if the described shape has been panned off-screen, the line still points toward it as best it can rather than drawing wildly outside the map.
+    var clickX = Math.max(0, Math.min(mapSize.x, clickPoint.x));
+    var clickY = Math.max(0, Math.min(mapSize.y, clickPoint.y));
+
+    var barRect = infoBar.getBoundingClientRect(), mapRect = document.getElementById('map').getBoundingClientRect();
+    var left = barRect.left - mapRect.left, top = barRect.top - mapRect.top, width = barRect.width, height = barRect.height, r = 8;
+    var boxPath = 'M ' + (left + r) + ',' + top +
+        ' L ' + (left + width - r) + ',' + top +
+        ' A ' + r + ',' + r + ' 0 0 1 ' + (left + width) + ',' + (top + r) +
+        ' L ' + (left + width) + ',' + (top + height - r) +
+        ' A ' + r + ',' + r + ' 0 0 1 ' + (left + width - r) + ',' + (top + height) +
+        ' L ' + (left + r) + ',' + (top + height) +
+        ' A ' + r + ',' + r + ' 0 0 1 ' + left + ',' + (top + height - r) +
+        ' L ' + left + ',' + (top + r) +
+        ' A ' + r + ',' + r + ' 0 0 1 ' + (left + r) + ',' + top +
+        ' Z';
+
+    // Anchored from the bar's own top-left corner (always the near corner, since the bar is always right-docked)
+    // - sits just inside the rounded corner so it disappears cleanly under the shape path drawn right after it
+    // in the same svg, instead of poking a visible stub out past the curve.
+    infoPointerLine.setAttribute('x1', left + r);
+    infoPointerLine.setAttribute('y1', top + r);
+    infoPointerLine.setAttribute('x2', clickX);
+    infoPointerLine.setAttribute('y2', clickY);
+    infoPointerShape.setAttribute('d', boxPath);
 }
-map.on('move zoom', updateConnectorLine);
+map.on('move zoom', updateInfoPointer);
+
+// Replaces flipping the popup to the opposite corner when it would land on top of the point it's describing:
+// pans the map itself the minimum horizontal distance needed to clear it by INFO_BAR_PAN_CLEARANCE px instead.
+// The bar is always right-docked, so the only edge it can ever obstruct a click from is its own left edge - a
+// horizontal-only pan is always enough.
+var INFO_BAR_PAN_CLEARANCE = 10;
+function panMapClearOfInfoBar(clickLatLng) {
+    var mapRect = document.getElementById('map').getBoundingClientRect();
+    var clickPoint = map.latLngToContainerPoint(clickLatLng);
+    var barRect = infoBar.getBoundingClientRect();
+    var barTop = barRect.top - mapRect.top, barBottom = barRect.bottom - mapRect.top, barLeft = barRect.left - mapRect.left;
+    if (clickPoint.y < barTop - INFO_BAR_PAN_CLEARANCE || clickPoint.y > barBottom + INFO_BAR_PAN_CLEARANCE) return; // Click isn't even near the bar's own vertical span
+    var desiredMaxX = barLeft - INFO_BAR_PAN_CLEARANCE;
+    if (clickPoint.x <= desiredMaxX) return; // Already clear - the common case, most clicks don't land anywhere near the bar
+    var deltaX = clickPoint.x - desiredMaxX;
+    var centerPoint = map.getSize().divideBy(2);
+    map.panTo(map.containerPointToLatLng(centerPoint.add([deltaX, 0])), { animate: true });
+}
 
 function showInfoBar(center, rings, title, rows) {
     highlightLayer.clearLayers();
-    // interactive: false on both - neither has a click handler of its own, and without this Leaflet's default
-    // per-path pointer handling (with a generous hit-slop around a thin stroke) can catch a click meant for
-    // whatever real shape is underneath, before it ever reaches that shape's own canvas.
-    L.polygon(esriRingsToLatLngRings(rings), { color: '#666', weight: 2, fill: false, interactive: false }).addTo(highlightLayer);
+    L.polygon(esriRingsToLatLngRings(rings), { color: '#666', weight: 2, fill: false }).addTo(highlightLayer);
     document.getElementById('info-bar-title').textContent = title;
     document.getElementById('info-bar-table').innerHTML = rows.map(function(r) { return '<tr><td>' + r[0] + '<td>' + r[1]; }).join('');
-
-    // Render at the default bottom-right position first so its real rendered height can be measured, rather than
-    // guessing a fixed one, before deciding whether it needs to flip to top-right. Keyed to the shape's own
-    // screen position (its centroid), not the click point - using the click point meant the same shape could
-    // flip either way depending on exactly where within it you clicked, which read as arbitrary/buggy.
-    infoBar.classList.remove('top-right');
     infoBar.classList.add('visible');
-    var mapRect = document.getElementById('map').getBoundingClientRect(), boxRect = infoBar.getBoundingClientRect();
-    var shapePoint = map.latLngToContainerPoint(center);
-    var underPopup = shapePoint.x >= mapRect.width - 16 - boxRect.width && shapePoint.y >= mapRect.height - 16 - boxRect.height;
-    infoBar.classList.toggle('top-right', underPopup);
-
-    connectorLine = L.polyline([center, center], { color: '#666', weight: 1.5, interactive: false }).addTo(highlightLayer);
-    updateConnectorLine();
+    infoPointerLine.classList.add('visible');
+    infoPointerShape.classList.add('visible');
+    activeClickLatLng = center;
+    panMapClearOfInfoBar(center); // If this shape's centroid landed under the bar, pan the map itself just enough to clear it
+    updateInfoPointer(); // Bar's on-screen position/size just changed (new content, possibly reflowed), so recompute immediately rather than waiting for the next map move/zoom
 }
 
 var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Census Block Info', tract: 'Census Tract Info' };
@@ -477,37 +552,78 @@ function redrawShapes() {
     var mode = viewMode, th = getThresholds(), bounds = map.getBounds(), showOutlines = document.getElementById('show-outlines-toggle').checked;
     datasets[mode].forEach(function(t) {
         if (!bounds.contains([t.lat, t.lng])) return;
-        var shape = L.polygon(esriRingsToLatLngRings(t.rings), {
+        L.polygon(esriRingsToLatLngRings(t.rings), {
             renderer: shapesRenderer, color: '#333', weight: showOutlines ? 1 : 0,
             fillColor: colorForDensity(densityForColor(mode, t), th), fillOpacity: 0.85,
         }).addTo(shapesLayer);
-        var info = infoForShape(mode, t);
-        shape.on('click', function() { showInfoBar(L.latLng(t.lat, t.lng), t.rings, info.title, info.rows); });
     });
 }
 map.on('zoomend moveend', redrawShapes);
 
-// Cursor feedback for hovering a clickable shape: Leaflet's own built-in canvas hover-cursor mechanism
-// (and even manually attached mouseover/mouseout listeners on individual shapes) never fired in this app for
-// reasons that didn't turn up under investigation - clicking itself works fine, just not hover detection. So
-// this reads the shapes canvas's own pixel data directly instead: any non-transparent pixel under the cursor
-// means a shape is rendered there, which is a cheap, DPR-safe way to hit-test a canvas that sidesteps
-// whatever's suppressing Leaflet's own hover events, without reimplementing point-in-polygon for however many
-// thousand shapes might be on screen.
-var shapesCanvasCtx = null; // lazy - shapesRenderer._container doesn't exist until Leaflet actually renders the first shape onto it
-var lastHoverCheck = 0;
-map.on('mousemove', function(e) {
-    var canvas = shapesRenderer._container;
-    if (!canvas) return; // nothing rendered yet (e.g. still loading)
-    if (!shapesCanvasCtx) shapesCanvasCtx = canvas.getContext('2d');
-    var now = Date.now();
-    if (now - lastHoverCheck < 40) return; // throttled - getImageData forces a GPU->CPU readback
-    lastHoverCheck = now;
-    var rect = canvas.getBoundingClientRect();
-    var cx = Math.floor((e.originalEvent.clientX - rect.left) * (canvas.width / rect.width));
-    var cy = Math.floor((e.originalEvent.clientY - rect.top) * (canvas.height / rect.height));
-    var hovering = cx >= 0 && cy >= 0 && cx < canvas.width && cy < canvas.height && shapesCanvasCtx.getImageData(cx, cy, 1, 1).data[3] > 0;
-    map.getContainer().style.cursor = hovering ? 'pointer' : '';
+// Nearest-shape lookup, generalized across all 4 view modes - picks whichever shape the click actually landed
+// in, not just whichever one's centroid happens to be closest (a large aggregate polygon's own centroid can be
+// far from an edge click, which would otherwise resolve to the wrong neighboring shape). Falls back to
+// whichever shape's PERIMETER (nearest edge point, not centroid) is closest when the click doesn't land inside
+// any shape's actual polygon at all (a street, a river, a gap between parcels). Ported from TOD-PITCH's own
+// findNearestTaxlot.
+var NEAREST_SHAPE_MAX_MILES = 2; // How close a near-miss still has to be to count as "close enough" - past this, a click is just empty space
+var FIND_SHAPE_POLYGON_TEST_MAX_MILES = 5; // How far a shape's centroid can be from the click and still be worth a real (more expensive, per-vertex) point-in-polygon test - generous enough to cover even the largest census tracts, not just small taxlots
+function pointInPolygonRings(lng, lat, rings) {
+    var inside = false;
+    rings.forEach(function(ring) {
+        for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+            var crosses = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+            if (crosses) inside = !inside;
+        }
+    });
+    return inside;
+}
+function haversineMiles(lat1, lng1, lat2, lng2) {
+    var r = 3958.8;
+    var p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+    var dp = (lat2 - lat1) * Math.PI / 180, dl = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    return 2 * r * Math.asin(Math.sqrt(a));
+}
+function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    var abx = bx - ax, aby = by - ay, abLenSq = abx * abx + aby * aby;
+    var t = abLenSq > 0 ? ((px - ax) * abx + (py - ay) * aby) / abLenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    return { x: ax + t * abx, y: ay + t * aby };
+}
+function nearestPerimeterDistanceMiles(lat, lng, rings) {
+    var best = Infinity;
+    rings.forEach(function(ring) {
+        for (var i = 0; i < ring.length; i++) {
+            var a = ring[i], b = ring[(i + 1) % ring.length];
+            var closest = closestPointOnSegment(lng, lat, a[0], a[1], b[0], b[1]);
+            var d = haversineMiles(lat, lng, closest.y, closest.x);
+            if (d < best) best = d;
+        }
+    });
+    return best;
+}
+function findNearestShape(mode, lat, lng) {
+    var containing = null, perimeterBest = null, perimeterBestDist = Infinity;
+    datasets[mode].forEach(function(t) {
+        var d = haversineMiles(lat, lng, t.lat, t.lng); // Cheap centroid distance - just decides whether this shape is even worth the more expensive per-edge checks below
+        if (!containing && d <= FIND_SHAPE_POLYGON_TEST_MAX_MILES && pointInPolygonRings(lng, lat, t.rings)) containing = t;
+        if (d <= NEAREST_SHAPE_MAX_MILES) {
+            var pd = nearestPerimeterDistanceMiles(lat, lng, t.rings);
+            if (pd < perimeterBestDist) { perimeterBestDist = pd; perimeterBest = t; }
+        }
+    });
+    if (containing) return containing;
+    return (perimeterBest && perimeterBestDist <= NEAREST_SHAPE_MAX_MILES) ? perimeterBest : null;
+}
+
+map.on('click', function(e) {
+    if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) return; // Shapes aren't even rendered below this zoom - nothing to find
+    var nearest = findNearestShape(viewMode, e.latlng.lat, e.latlng.lng);
+    if (!nearest) return; // Genuinely empty space - leave whatever's currently open (if anything) as-is
+    var info = infoForShape(viewMode, nearest);
+    showInfoBar(L.latLng(nearest.lat, nearest.lng), nearest.rings, info.title, info.rows);
 });
 
 // density_formulas.json and the 3 aggregate layers are all small - fine to fetch directly on the main thread, together. The taxlot Worker below (which does need formulas, for its own live per-taxlot calculation) awaits this same promise before touching any of it.
