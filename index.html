@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <!-- Bootstrap value only - the tab needs some title before the script at the bottom of this file runs. APP_TITLE there is the real source of truth and overwrites this on load; keep both in sync if this ever changes. -->
     <title>Portland Housing Density Mapper</title>
-    <link rel="icon" type="image/png" href="Density%20favicon.png?v=1788229005">
+    <link rel="icon" type="image/png" href="Density%20favicon.png?v=1788233480">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"/>
     <style>
@@ -14,7 +14,7 @@
         html, #app { height: 100%; }
         #app { display: flex; }
 
-        #sidebar { width: 260px; flex: none; padding: 14px; overflow-y: auto; font-size: var(--font-body); color: #333; }
+        #sidebar { width: 260px; flex: none; padding: 14px; overflow-y: auto; font-size: var(--font-body); color: #333; box-sizing: border-box; display: flex; flex-direction: column; }
         #sidebar h1 { font-size: var(--font-title); margin: 0 0 16px; }
         #sidebar h2 { font-size: var(--font-small); text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 16px 0 6px; }
         #sidebar h2:first-of-type { margin-top: 0; }
@@ -25,6 +25,9 @@
         #sidebar hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
         #sidebar button.density-link { width: auto; padding: 0; background: none; border: none; font: inherit; color: #06c; text-decoration: underline; cursor: pointer; }
         #sidebar button.density-link:hover { color: #04c; }
+        #sidebar-footer { margin-top: auto; padding-top: 16px; }
+        #sidebar-footer a { color: #06c; }
+        #sidebar-footer a:hover { color: #04c; }
         .threshold-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
         .threshold-row input { width: 60px; font-size: var(--font-body); }
 
@@ -47,7 +50,7 @@
         #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
         #scale-bar-label { margin-top: 2px; }
         #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; color: #888; font-size: var(--font-small); }
-        #legend a, #sources-bar a { color: #06c; text-decoration: underline; }
+        #legend a, #sources-bar a { color: #06c; }
         #zoom-hint { top: 16px; left: 50%; transform: translateX(-50%); }
         #load-progress { top: 16px; right: 16px; }
         .hidden { display: none; }
@@ -76,7 +79,7 @@
         .modal-box table { width: 100%; border-collapse: collapse; font-size: var(--font-body); margin-bottom: 4px; }
         .modal-box td, .modal-box th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #eee; }
         .modal-box th { color: #888; font-weight: normal; }
-        .modal-box a { color: #06c; text-decoration: underline; }
+        .modal-box a { color: #06c; }
         .modal-box a:hover { color: #04c; }
     </style>
 </head>
@@ -106,6 +109,8 @@
         <hr>
 
         <p>Only taxlots/areas that are zoned for residential use or have existing housing units are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden.</p>
+
+        <div id="sidebar-footer"><a href="https://github.com/jacksoneschroeder/portland-housing-density-mapper" target="_blank" rel="noopener">View source code on GitHub</a></div>
     </div>
 
     <div id="map-wrap">
