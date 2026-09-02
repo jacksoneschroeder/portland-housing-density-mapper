@@ -281,11 +281,9 @@ function fetchAndDecompress(url) {
     });
 }
 
-// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP/CR/RF's real flat city caps > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers CM1-3/CE/CX, which the city caps by FAR rather than units/acre; RM1-4/RX, which the city leaves uncapped outright; and any taxlot whose portlandZoneClass has no dedicated formula or is null because it falls outside every mapped zoning polygon) > existing units as a last resort.
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP/CR/RF's real flat city caps > a real 0 for zones where Household Living is prohibited or all-but-prohibited (EG1/EG2/CI1) > the real RIP formula (R-zones) > for zones with a real FAR limit but no maximum-density standard at all (RM1-4/RX, CM1-3/CE/CX, EX, CI2/IR), whichever is lower of a FAR-derived unit ceiling or Metro's own generalized zoneClass estimate > Metro's zoneClass estimate alone for any other known zone > existing units as a last resort.
 // Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
 var formulas = null; // populated once initialDataReady resolves
-var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
-var FAR_CAPPED_ZONES = {}; // built from formulas.farCappedZones once loaded - CM1-3/CE/CX: Ch. 33.130's own development-standards summary table has no Maximum Density row for these at all, capped by FAR instead (a distinct real-code reason from RM1-4/RX's own no-cap note, so it gets its own note text)
 
 function isResidentialMetroZone(zoneClass) {
     return new RegExp('^(' + formulas.residentialMetroPrefixes.join('|') + ')').test(zoneClass || '');
@@ -305,15 +303,35 @@ function taxlotMaximumDensity(t) {
     if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft - Portland City Code 33.120.212)' }; }
     if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code Ch. 33.130)' }; }
     if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft - Portland City Code 33.610.100)' }; }
+    if (zone in formulas.noUnitsZones) { return { value: 0, units: 0, label: '0 du/ac (Household Living is prohibited in ' + zone + ' - ' + formulas.noUnitsZones[zone] + ')' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
         if (rip !== null) { units = rip; v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RIP-eligible)' }; }
     }
+    if (zone in formulas.farValues) {
+        // These zones have a real Floor Area Ratio limit but no maximum-density (units/acre) standard at all -
+        // confirmed directly against each chapter's own development-standards summary table, not guessed. FAR
+        // caps total building floor area, not unit count, so converting it into a unit ceiling means assuming
+        // some floor area per unit - formulas.farUnitSizeSqft (500 sq ft) is the same deliberately small,
+        // "how many could conceivably fit" assumption the RIP cottage-cluster formula above already uses, for
+        // the same reason: a real ceiling, not a typical/expected unit size. The real max is whichever of that
+        // FAR-derived ceiling or Metro's own generalized zoneClass estimate is LOWER - Metro's regional figure
+        // can run well above what this taxlot's own real FAR would actually allow, so it's used as a cap on
+        // the FAR-derived number, not a replacement for it.
+        var far = formulas.farValues[zone];
+        var farUnits = Math.floor((far.far * t.acres * 43560) / formulas.farUnitSizeSqft);
+        var metroUnits = t.zoneClass in formulas.zoneClassDensity ? Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres) : null;
+        units = metroUnits === null ? farUnits : Math.min(farUnits, metroUnits);
+        v = units / t.acres;
+        var label = (metroUnits !== null && metroUnits < farUnits)
+            ? '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' - lower than the ' + far.far + ':1 FAR ceiling for ' + zone + ', ' + far.citation + ')'
+            : v.toFixed(1) + ' du/ac (' + far.far + ':1 FAR ÷ ' + formulas.farUnitSizeSqft + ' sq ft/unit assumed - ' + far.citation + ')';
+        return { value: v, units: units, label: label };
+    }
     if (t.zoneClass in formulas.zoneClassDensity) {
         units = Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres);
         v = units / t.acres;
-        // Four real cases, not two: a zone the city caps by FAR instead of units/acre (CM1-3/CE/CX, Ch. 33.130's own summary table has no Maximum Density row for them) > a zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
-        var note = zone in FAR_CAPPED_ZONES ? 'the city caps ' + zone + ' density by FAR, not du/ac (Portland City Code Ch. 33.130)' : zone in NO_CAP_ZONES ? 'the city caps ' + zone + ' by FAR, not du/ac (Portland City Code 33.120.212)' : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
+        var note = zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
         return { value: v, units: units, label: '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' because ' + note + ')' };
     }
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
@@ -512,14 +530,36 @@ function buildDensityInfoModal() {
         }
         return '<tr><td>' + zone + '<td>Yes<td>' + text;
     });
-    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code 33.120.212), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
     rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft - Portland City Code 33.120.212)');
     rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code 33.610.100)');
-    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code Ch. 33.130), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
     rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code Ch. 33.130)');
+    // Grouped by (FAR ratio, citation) so zones sharing both collapse into one row (e.g. RM4/RX both 4:1 under
+    // 33.120.210) - every zone here has a real FAR limit but no maximum-density standard at all, confirmed
+    // directly against each chapter's own development-standards summary table. See taxlotMaximumDensity's own
+    // comment for why the FAR-to-units conversion assumes 500 sq ft/unit, and why the real max is whichever of
+    // that or Metro's own zoneClass estimate is lower.
+    var farGroups = {};
+    Object.keys(formulas.farValues).forEach(function(zone) {
+        var f = formulas.farValues[zone], key = f.far + '|' + f.citation;
+        (farGroups[key] = farGroups[key] || { far: f.far, citation: f.citation, zones: [] }).zones.push(zone);
+    });
+    Object.keys(farGroups).forEach(function(key) {
+        var g = farGroups[key];
+        rows.push('<tr><td>' + g.zones.join(', ') + '<td>No<td>' + g.far + ':1 FAR ÷ ' + formulas.farUnitSizeSqft + ' sq ft/unit assumed, or Metro\'s Zoning Generalized Classification if lower (' + g.citation + ')');
+    });
+    // Household Living is genuinely prohibited (CI1) or limited to only a narrow existing-hotel/motel-to-
+    // affordable-housing conversion (EG1/EG2) - grouped the same way as the FAR rows above, by shared citation.
+    var noUnitsGroups = {};
+    Object.keys(formulas.noUnitsZones).forEach(function(zone) {
+        var citation = formulas.noUnitsZones[zone];
+        (noUnitsGroups[citation] = noUnitsGroups[citation] || []).push(zone);
+    });
+    Object.keys(noUnitsGroups).forEach(function(citation) {
+        rows.push('<tr><td>' + noUnitsGroups[citation].join(', ') + '<td>No<td>0 du/ac - Household Living is prohibited or all-but-prohibited (' + citation + ')');
+    });
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
 
-    document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not du/ac.';
+    document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot does not have data for a Portland zone code, or uses them as an upper bound on a FAR-derived unit ceiling for a Portland zone code with a real FAR limit but no maximum-density standard of its own.';
 
     var metroRows = Object.keys(formulas.zoneClassDensity).map(function(k) {
         return '<tr><td>' + k + '<td>' + formulas.zoneClassDensity[k] + ' du/ac';
@@ -618,8 +658,6 @@ var initialDataReady = Promise.all([
     fetchAndDecompress('runtime-data/census_blocks.json.gz').catch(function() { return []; }),
 ]).then(function(results) {
     formulas = results[0];
-    formulas.noCapZones.forEach(function(z) { NO_CAP_ZONES[z] = 1; });
-    formulas.farCappedZones.forEach(function(z) { FAR_CAPPED_ZONES[z] = 1; });
     function withCentroid(list) {
         return list.map(function(z) { return Object.assign(polygonCentroid(z.rings), z); });
     }

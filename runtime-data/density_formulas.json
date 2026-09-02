@@ -7,10 +7,29 @@
   "rmpUnitsPerAcre": 29,
   "crUnitsPerAcre": 17.424,
   "rfUnitsPerAcre": 0.5,
-  "noCapZones": ["RM1", "RM2", "RM3", "RM4", "RX"],
-  "farCappedZones": ["CM1", "CM2", "CM3", "CE", "CX"],
+  "farUnitSizeSqft": 500,
+  "farValues": {
+    "RM1": { "far": 1, "citation": "Portland City Code 33.120.210" },
+    "RM2": { "far": 1.5, "citation": "Portland City Code 33.120.210" },
+    "RM3": { "far": 2, "citation": "Portland City Code 33.120.210" },
+    "RM4": { "far": 4, "citation": "Portland City Code 33.120.210" },
+    "RX": { "far": 4, "citation": "Portland City Code 33.120.210" },
+    "CM1": { "far": 1.5, "citation": "Portland City Code 33.130.205" },
+    "CM2": { "far": 2.5, "citation": "Portland City Code 33.130.205" },
+    "CM3": { "far": 3, "citation": "Portland City Code 33.130.205" },
+    "CE": { "far": 2.5, "citation": "Portland City Code 33.130.205" },
+    "CX": { "far": 4, "citation": "Portland City Code 33.130.205" },
+    "EX": { "far": 3, "citation": "Portland City Code 33.140.205" },
+    "CI2": { "far": 3, "citation": "Portland City Code 33.150.205" },
+    "IR": { "far": 2, "citation": "Portland City Code 33.150.205" }
+  },
+  "noUnitsZones": {
+    "EG1": "Portland City Code 33.140.100",
+    "EG2": "Portland City Code 33.140.100",
+    "CI1": "Portland City Code 33.150.100"
+  },
   "residentialMetroPrefixes": ["SFR", "MFR", "MUR"],
-  "residentialPortlandZones": ["RF", "R20", "R10", "R7", "R5", "R2.5", "RM1", "RM2", "RM3", "RM4", "RX", "RMP", "CR", "CM1", "CM2", "CM3", "CE", "CX"],
+  "residentialPortlandZones": ["RF", "R20", "R10", "R7", "R5", "R2.5", "RM1", "RM2", "RM3", "RM4", "RX", "RMP", "CR", "CM1", "CM2", "CM3", "CE", "CX", "EX", "CI2", "IR"],
   "zoneClassDensity": {
     "SFR1": 4, "SFR2": 8, "SFR3": 14,
     "MFR1": 27, "MFR2": 36, "MFR3": 60, "MFR4": 80, "MFR5": 120, "MFR6": 218, "MFR7": 450,
