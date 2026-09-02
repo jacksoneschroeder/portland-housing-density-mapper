@@ -178,7 +178,7 @@
         <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on <a href="#" id="cottage-cluster-link" target="_blank" rel="noopener">Portland City Code 33.110.265.G</a>.</p>
 
         <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
-        <p>Metro created these 48 generalized zoning classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not units/acre (that is, RM1, RM2, RM3, RM4, and RX). </p>
+        <p id="metro-fallback-text"></p>
         <table id="metro-density-table"></table>
 
         <h4 id="max-density-area-mean-heading"></h4>
@@ -203,6 +203,8 @@ var CITATIONS = {
     baseZonesCode: 'https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A',
     metroZoneClass: 'https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.',
     ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
+    commercialMixedUseCode: 'https://www.portland.gov/sites/default/files/code/130-c-zones_3.pdf',
+    singleDwellingDensityGuide: 'https://www.portland.gov/ppd/documents/density-and-lot-dimensions-single-dwelling-zones/download',
 };
 document.getElementById('housing-link').href = CITATIONS.housing;
 document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
@@ -546,8 +548,14 @@ function buildDensityInfoModal() {
         return '<tr><td>' + zone + '<td>Yes<td>' + text;
     });
     rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' units/acre (1 unit/1,500 sq ft)');
+    rows.push('<tr><td>CR<td>No<td>' + formulas.crUnitsPerAcre.toFixed(1) + ' units/acre (1 unit/2,500 sq ft, on sites without a Retail Sales/Service or Office use - <a href="' + CITATIONS.commercialMixedUseCode + '" target="_blank" rel="noopener">33.130 Table 130-2</a> footnote)');
+    rows.push('<tr><td>RF<td>No<td>' + formulas.rfUnitsPerAcre + ' units/acre (1 unit/87,120 sq ft - <a href="' + CITATIONS.singleDwellingDensityGuide + '" target="_blank" rel="noopener">Table 610-1</a>)');
     rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>No flat cap (floor-area-ratio limited instead) - this tool estimates a ceiling from Metro\'s own generalized zoning class for that same taxlot instead (see below)');
+    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>No flat cap - <a href="' + CITATIONS.commercialMixedUseCode + '" target="_blank" rel="noopener">33.130 Table 130-2</a> has no Maximum Density standard for these zones at all, floor-area-ratio limited instead - this tool estimates a ceiling from Metro\'s own generalized zoning class for that same taxlot instead (see below)');
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
+
+    var noFlatCapZones = formulas.noCapZones.concat(formulas.farCappedZones);
+    document.getElementById('metro-fallback-text').textContent = 'Metro created these 48 generalized zoning classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not units/acre (that is, ' + noFlatCapZones.join(', ') + ').';
 
     var metroRows = Object.keys(formulas.zoneClassDensity).map(function(k) {
         return '<tr><td>' + k + '<td>' + formulas.zoneClassDensity[k] + ' units/acre';
