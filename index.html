@@ -291,7 +291,7 @@ function fetchAndDecompress(url) {
     });
 }
 
-// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and MUR zones, which never get a portlandZoneClass at all) > existing units as a last resort.
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP's real city cap > the real RIP formula (R-zones) > Metro's zoneClass density figure (covers RM1-4/RX, which the city leaves uncapped, and any taxlot whose portlandZoneClass has no dedicated formula or is null because it falls outside every mapped zoning polygon) > existing units as a last resort.
 // Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
 var formulas = null; // populated once initialDataReady resolves
 var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
@@ -319,9 +319,9 @@ function taxlotMaximumDensity(t) {
     if (t.zoneClass in formulas.zoneClassDensity) {
         units = Math.max(existing, Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres));
         v = units / t.acres;
-        // Three real cases, not two: a known zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for (e.g. RF) > a zone this data source never assigns a Portland code to at all (MUR - zone is null).
-        var note = zone in NO_CAP_ZONES ? 'city sets no flat cap' : zone ? 'no dedicated formula for this zone' : 'zoning detail not on file';
-        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (est. via Metro ' + t.zoneClass + ' - ' + note + ')' };
+        // Three real cases, not two: a known zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for (e.g. RF) > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
+        var note = zone in NO_CAP_ZONES ? 'the city sets no flat cap for ' + zone : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
+        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (estimated via Metro ' + t.zoneClass + ' because ' + note + ')' };
     }
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
 }

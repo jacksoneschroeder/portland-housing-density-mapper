@@ -58,7 +58,14 @@ TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
 ZONING_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_zoning_checkpoint.json')
 ASSESSOR_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_assessor_checkpoint.json')
 
-RESIDENTIAL_ZONE_CLASSES = {'SFR1', 'SFR2', 'SFR3', 'MFR3', 'MFR4', 'MFR5', 'MFR6'}
+# Same canonical list index.html's own isResidentialMetroZone and build_aggregation_layers.py's
+# RESIDENTIAL_METRO_PREFIXES both already read from this exact file - reused here instead of a second,
+# narrower, independently-maintained copy (this used to be a small hardcoded set of just the single-dwelling
+# zone classes RIP itself applies to, which meant every MUR-classified taxlot - a lot of Portland's denser
+# mixed-use/commercial-residential zones (RM1-4, RX, CR, CM1-3, CE, CX) - never even got a real Portland zone
+# code looked up at all, regardless of whether a real zoning polygon actually covered it).
+with open(os.path.join(RUNTIME_DATA_DIR, 'density_formulas.json')) as _f:
+    RESIDENTIAL_METRO_PREFIXES = tuple(json.load(_f)['residentialMetroPrefixes'])
 ASSESSOR_BATCH_SIZE = 1000
 
 # --- Real RIP minimum-lot-size-by-housing-type-and-zone figures (see this script's own header comment) ---
@@ -139,7 +146,7 @@ def main():
     taxlots = load_taxlot_dataset(TAXLOT_DATASET_PATH)
     print('  %d taxlots total' % len(taxlots))
 
-    portland_res = [t for t in taxlots if t.get('city') == 'PORTLAND' and t.get('zoneClass') in RESIDENTIAL_ZONE_CLASSES]
+    portland_res = [t for t in taxlots if t.get('city') == 'PORTLAND' and (t.get('zoneClass') or '').startswith(RESIDENTIAL_METRO_PREFIXES)]
     print('  %d Portland residential taxlots in scope' % len(portland_res))
 
     print('Fetching Portland zoning polygons...')
@@ -178,6 +185,13 @@ def main():
             print('  joined %d / %d' % (i + 1, len(portland_res)))
     print('  unmatched (no zoning polygon found): %d / %d' % (unmatched_zone, len(portland_res)))
 
+    # sqft/RIP only matter for the 5 single-dwelling zones RIP itself actually applies to (see rip_max_units) -
+    # narrowed down AFTER the real zone join above, not before, so a taxlot's own newly-looked-up zone code
+    # decides this, not its (unrelated) Metro classification. Keeps the slow, real per-taxlot assessor fetch
+    # below scoped to only the taxlots that could ever actually use its result.
+    rip_eligible = [t for t in portland_res if t.get('portlandZoneClass') in RIP_SIXPLEX_MIN_SQFT]
+    print('  %d / %d are in a RIP-eligible zone (R20/R10/R7/R5/R2.5) - only these need real assessor sqft' % (len(rip_eligible), len(portland_res)))
+
     print('Fetching real assessor square footage...')
     sqft_by_tlid = {}
     start_batch = 0
@@ -188,7 +202,7 @@ def main():
         start_batch = saved['completed_batches']
         print('  resuming from checkpoint: %d batches already fetched, %d real sqft values found so far' % (start_batch, len(sqft_by_tlid)))
 
-    tlids = [t['tlid'] for t in portland_res]
+    tlids = [t['tlid'] for t in rip_eligible]
     batches = [tlids[i:i + ASSESSOR_BATCH_SIZE] for i in range(0, len(tlids), ASSESSOR_BATCH_SIZE)]
     for i in range(start_batch, len(batches)):
         batch_result = fetch_assessor_batch(batches[i])
@@ -201,7 +215,7 @@ def main():
 
     print('Computing real sqft (assessor value, or acres*43560 fallback) and RIP max units...')
     real_sqft_count = 0
-    for t in portland_res:
+    for t in rip_eligible:
         real = sqft_by_tlid.get(t['tlid'])
         if real:
             t['sqft'] = real
@@ -209,7 +223,7 @@ def main():
         else:
             t['sqft'] = round(t['acres'] * 43560, 1)
         t['ripMaxUnits'] = rip_max_units(t.get('portlandZoneClass'), t['sqft'])
-    print('  %d / %d taxlots got a real assessor sqft value (rest fell back to acres*43560)' % (real_sqft_count, len(portland_res)))
+    print('  %d / %d taxlots got a real assessor sqft value (rest fell back to acres*43560)' % (real_sqft_count, len(rip_eligible)))
 
     print('Writing updated taxlot dataset...')
     write_taxlot_dataset(taxlots, TAXLOT_DATASET_PATH)
