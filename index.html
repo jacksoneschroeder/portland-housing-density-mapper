@@ -41,10 +41,9 @@
         actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
         #load-progress, #zoom-hint {
-            position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
+            position: absolute; z-index: 500; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px;
         }
-        #load-progress, #zoom-hint { z-index: 500; padding: 8px; }
         #legend { margin: 0 0 8px 8px; width: max-content; max-width: calc(100% - 16px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px; pointer-events: auto; }
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
@@ -109,7 +108,7 @@
 
         <label><input type="checkbox" id="show-outlines-toggle"> Show taxlot/area outlines</label>
 
-        <h2>Legend thresholds (units/acre)</h2>
+        <h2>Legend thresholds (du/ac)</h2>
         <div class="threshold-row"><span>Threshold 1</span><input type="number" id="threshold-1" min="0" step="1" value="20"></div>
         <div class="threshold-row"><span>Threshold 2 (optional)</span><input type="number" id="threshold-2" min="0" step="1" value="60"></div>
 
@@ -143,7 +142,7 @@
         <div id="load-progress">Loading taxlots&hellip;</div>
         <div id="legend-stack">
             <div id="legend">
-                <b id="legend-title">Existing units/acre</b>
+                <b id="legend-title">Existing du/ac</b>
                 <div id="legend-rows"></div>
                 <div id="legend-compass-scale">
                     <div id="north-arrow">N<br>&uarr;</div>
@@ -175,7 +174,7 @@
 
         <h4><a href="#" id="base-zones-link" target="_blank" rel="noopener">Portland Residential Base Zones</a></h4>
         <table id="zone-density-table"></table>
-        <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on <a href="#" id="cottage-cluster-link" target="_blank" rel="noopener">Portland City Code 33.110.265.G</a>.</p>
+        <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on Portland City Code 33.110.265.G.</p>
 
         <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
         <p id="metro-fallback-text"></p>
@@ -209,7 +208,6 @@ var CITATIONS = {
 document.getElementById('housing-link').href = CITATIONS.housing;
 document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
 document.getElementById('base-zones-link').href = CITATIONS.baseZonesCode;
-document.getElementById('cottage-cluster-link').href = CITATIONS.ripCode;
 document.getElementById('metro-zone-class-link').href = CITATIONS.metroZoneClass;
 
 // Every font size in this app, including the canvas-drawn download image below, which reads these same computed values back instead of keeping its own separate numbers.
@@ -312,21 +310,21 @@ function ripMaximumUnits(zone, sqft) {
     return best;
 }
 function taxlotMaximumDensity(t) {
-    // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from.
-    var existing = Math.round(t.existingDensity * t.acres), zone = t.portlandZoneClass, v, units;
-    if (zone === 'RMP') { units = Math.max(existing, Math.floor(formulas.rmpUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RMP: 1 unit/1,500 sq ft)' }; }
-    if (zone === 'CR') { units = Math.max(existing, Math.floor(formulas.crUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code 33.130 Table 130-2)' }; }
-    if (zone === 'RF') { units = Math.max(existing, Math.floor(formulas.rfUnitsPerAcre * t.acres)); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (1 unit per 87,120 sq ft - Portland City Code Ch. 33 Table 610-1)' }; }
+    // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from. Reports the formula's own number as-is, even when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - this is a real zoning-code ceiling, not a claim about what's already built, so it doesn't get bumped up to match existing.
+    var zone = t.portlandZoneClass, v, units;
+    if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft)' }; }
+    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code 33.130 Table 130-2)' }; }
+    if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft - Portland City Code Ch. 33, Table 610-1)' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
-        if (rip !== null) { units = Math.max(existing, rip); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' units/acre (RIP-eligible)' }; }
+        if (rip !== null) { units = rip; v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RIP-eligible)' }; }
     }
     if (t.zoneClass in formulas.zoneClassDensity) {
-        units = Math.max(existing, Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres));
+        units = Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres);
         v = units / t.acres;
         // Four real cases, not two: a zone the city caps by FAR instead of units/acre (CM1-3/CE/CX, Table 130-2 has no Maximum Density row for them) > a zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
-        var note = zone in FAR_CAPPED_ZONES ? 'Capped by FAR, not units/acre (Portland City Code Ch. 33 Table 130-2), so the density estimate falls back to Metro\'s Zoning Generalized Classifications' : zone in NO_CAP_ZONES ? 'the city sets no flat cap for ' + zone : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
-        return { value: v, units: units, label: '~' + v.toFixed(1) + ' units/acre (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' because ' + note + ')' };
+        var note = zone in FAR_CAPPED_ZONES ? 'the city caps ' + zone + ' density by FAR, not du/ac' : zone in NO_CAP_ZONES ? 'the city caps ' + zone + ' by FAR, not du/ac' : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
+        return { value: v, units: units, label: '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' because ' + note + ')' };
     }
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
 }
@@ -353,7 +351,7 @@ function legendEntries() {
 }
 var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
 function rebuildLegend() {
-    document.getElementById('legend-title').textContent = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' units/acre';
+    document.getElementById('legend-title').textContent = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' du/ac';
     document.getElementById('legend-rows').innerHTML = legendEntries().map(function(e) {
         return '<div class="legend-row"><span class="swatch" style="background:' + e[0] + '"></span>' + e[1] + '</div>';
     }).join('');
@@ -500,22 +498,22 @@ function infoForShape(mode, t) {
         return { title: TITLES.taxlot, rows: [
             ['Address', t.address || 'No address on file'],
             ['Zoning classification', t.portlandZoneClass || 'N/A (zoning class not covered by this data)'],
-            ['Area', t.acres.toFixed(2) + ' acres'],
+            ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
             ['Zoned maximum density', max.label],
-            ['Zoned maximum units', max.units == null ? 'Unknown' : max.units],
-            ['Existing units', t.existingUnits],
-            ['Existing density', t.existingDensity.toFixed(1) + ' units/acre'],
+            ['Zoned maximum units', max.units == null ? 'Unknown' : max.units.toLocaleString()],
+            ['Existing units', t.existingUnits.toLocaleString()],
+            ['Existing density', t.existingDensity.toFixed(1) + ' du/ac' + (max.units != null && t.existingUnits > max.units ? ' (legally non-conforming)' : '')],
         ] };
     }
     // Aggregate modes: unit totals and densities are all real area-weighted sums/means computed in build_aggregation_layers.py, not a qualitative label.
     return { title: TITLES[mode], rows: [
         [ID_LABELS[mode], mode === 'zoning' ? t.polygonId : t.name],
         ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
-        ['Area', t.acres.toFixed(2) + ' acres'],
-        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' units/acre'],
-        ['Zoned maximum units (total)', t.maximumUnits],
-        ['Existing units (total)', t.existingUnits],
-        ['Existing density (mean)', t.existingDensity.toFixed(1) + ' units/acre'],
+        ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
+        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' du/ac'],
+        ['Zoned maximum units (total)', t.maximumUnits.toLocaleString()],
+        ['Existing units (total)', t.existingUnits.toLocaleString()],
+        ['Existing density (mean)', t.existingDensity.toFixed(1) + ' du/ac'],
     ] };
 }
 
@@ -547,20 +545,19 @@ function buildDensityInfoModal() {
         }
         return '<tr><td>' + zone + '<td>Yes<td>' + text;
     });
-    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' units/acre (1 unit/1,500 sq ft)');
-    rows.push('<tr><td>CR<td>No<td>' + formulas.crUnitsPerAcre.toFixed(1) + ' units/acre (1 unit/2,500 sq ft, on sites without a Retail Sales/Service or Office use - <a href="' + CITATIONS.commercialMixedUseCode + '" target="_blank" rel="noopener">33.130 Table 130-2</a> footnote)');
-    rows.push('<tr><td>RF<td>No<td>' + formulas.rfUnitsPerAcre + ' units/acre (1 unit/87,120 sq ft - <a href="' + CITATIONS.singleDwellingDensityGuide + '" target="_blank" rel="noopener">Table 610-1</a>)');
-    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>No flat cap (floor-area-ratio limited instead) - this tool estimates a ceiling from Metro\'s own generalized zoning class for that same taxlot instead (see below)');
-    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>No flat cap - <a href="' + CITATIONS.commercialMixedUseCode + '" target="_blank" rel="noopener">33.130 Table 130-2</a> has no Maximum Density standard for these zones at all, floor-area-ratio limited instead - this tool estimates a ceiling from Metro\'s own generalized zoning class for that same taxlot instead (see below)');
+    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code 33.120.212, Table 120-4), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
+    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft)');
+    rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code Ch. 33, Table 610-1)');
+    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code Ch. 33, Table 130-2), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
+    rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code 33.130 Table 130-2)');
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
 
-    var noFlatCapZones = formulas.noCapZones.concat(formulas.farCappedZones);
-    document.getElementById('metro-fallback-text').textContent = 'Metro created these 48 generalized zoning classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not units/acre (that is, ' + noFlatCapZones.join(', ') + ').';
+    document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not du/ac.';
 
     var metroRows = Object.keys(formulas.zoneClassDensity).map(function(k) {
-        return '<tr><td>' + k + '<td>' + formulas.zoneClassDensity[k] + ' units/acre';
+        return '<tr><td>' + k + '<td>' + formulas.zoneClassDensity[k] + ' du/ac';
     });
-    document.getElementById('metro-density-table').innerHTML = '<tr><th>Zone<th>Maximum density permitted (units/acre)' + metroRows.join('');
+    document.getElementById('metro-density-table').innerHTML = '<tr><th>Zone<th>Maximum density permitted (du/ac)' + metroRows.join('');
 }
 
 // Taxlot mode needs high zoom (~183k taxlots); the 3 precomputed aggregate layers read fine much further out.
@@ -728,7 +725,7 @@ function drawSourcesBar(ctx, dpr) {
 function drawLegendBox(ctx, dpr, bottomOffset) {
     var entries = legendEntries(), fontSize = FONT_BODY_PX * dpr;
     var rowH = 18 * dpr, pad = 10 * dpr, titleH = 22 * dpr;
-    var titleText = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' units/acre';
+    var titleText = (colorBy === 'existing' ? 'Existing' : 'Zoned maximum') + ' du/ac';
     var s = computeScaleBar();
 
     // Width sizes to whatever content is actually widest (title, a row, or the compass row) - same as the on-screen legend's own width:max-content, rather than a fixed guess that leaves dead space or clips something.

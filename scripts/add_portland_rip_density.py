@@ -3,11 +3,12 @@
 # zoneClass/zoneGenClass fields are a REGIONAL generalized classification, not Portland's native zone codes)
 # to every Portland taxlot already classified residential (SFR/MFR/MUR) by Metro's own join in
 # build_taxlot_dataset.py, plus real assessor lot square footage (sqft, falling back to acres*43560 only when
-# the assessor has no record for that taxlot - see this script's own "unmatched" count) and a Residential
-# Infill Project (RIP) existing-max-density figure (ripMaxUnits) for the subset of those that land in an
-# RIP-eligible zone. Scoped to Portland only (not the whole 3-county region) - RIP is a Portland City Code
-# program (Chapter 33.110), not a regional one. RIP's minimum-lot-size table (see
-# RIP_SIXPLEX_MIN_SQFT/COTTAGE_CLUSTER_MIN_SQFT below) only ever applies to Portland's single-dwelling
+# the assessor has no record for that taxlot - see this script's own "unmatched" count) for the subset of
+# those that land in an RIP-eligible zone (real sqft is what index.html's own ripMaximumUnits and
+# build_aggregation_layers.py's own rip_max_units need to compute a real RIP figure at read time - this
+# script doesn't precompute that figure itself, just the raw sqft it depends on). Scoped to Portland only
+# (not the whole 3-county region) - RIP is a Portland City Code program (Chapter 33.110), not a regional one.
+# RIP's minimum-lot-size table (RIP_SIXPLEX_MIN_SQFT below) only ever applies to Portland's single-dwelling
 # R20/R10/R7/R5/R2.5 zones - a real taxlot's zoneClass (SFR/MFR/MUR) doesn't determine RIP eligibility on its
 # own, only the real portlandZoneClass this script's own zoning join produces does, which is why the sqft
 # fetch below is scoped to rip_eligible (computed after the join) rather than the wider portland_res.
@@ -26,27 +27,12 @@
 # rebuild most recently regenerated this dataset). Falls back to acres*43560 only for the taxlots the
 # assessor never recorded (a real, expected data-quality gap - not every taxlot has a full assessor record).
 #
-# ripMaxUnits: the MAXIMUM units a taxlot could support if redeveloped under any ONE Residential Infill
-# Project housing type it qualifies for (by portlandZoneClass + sqft) - "take the max available" per the
-# user's own framing. Two tiers, both straight from the real RIP minimum-lot-size-by-housing-type-and-zone
-# table and the real Cottage Cluster code text (Portland City Code 33.110.265.G):
-#   1. A flat 2-unit floor (duplex/detached duplex - "No minimum" lot size, always available), rising to 6
-#      units (Affordable 4-/5-/6-plex) once the site clears RIP_SIXPLEX_MIN_SQFT for its own zone.
-#   2. Cottage Cluster: min(floor(sqft / 500), 16) once the site falls within COTTAGE_CLUSTER_MIN_SQFT/MAX_SQFT
-#      for its own zone - 500 sq ft/unit is a deliberately low (dense) assumed footprint (real code text has
-#      no stated MINIMUM unit size, only maximums - see this script's own git history/PR discussion), so this
-#      one output is a genuine "how many could conceivably fit" ceiling, not a typical/expected count.
-# The real max ends up being whichever of the two is larger - cottage cluster wins on any site big enough to
-# qualify for it at all, in every zone (see the git history's own worked examples), so the fixed 2/6-unit
-# tier is really only ever the binding one below cottage cluster's own minimum site size.
-#
 # Run with: python3 scripts/add_portland_rip_density.py
 # Reads/writes: runtime-data/taxlot_density_data.json (+ .gz)
 
 import json
 import os
 import time
-import urllib.parse
 
 from build_taxlot_dataset import (
     RUNTIME_DATA_DIR, NON_ESSENTIAL_DATA_DIR, post_query, point_in_polygon,
@@ -69,28 +55,11 @@ with open(os.path.join(RUNTIME_DATA_DIR, 'density_formulas.json')) as _f:
     RESIDENTIAL_METRO_PREFIXES = tuple(json.load(_f)['residentialMetroPrefixes'])
 ASSESSOR_BATCH_SIZE = 1000
 
-# --- Real RIP minimum-lot-size-by-housing-type-and-zone figures (see this script's own header comment) ---
-# "Affordable 4-, 5-, or 6-plex" - take the max (6) available at that same lot-of-record threshold.
+# Real RIP minimum-lot-size-by-housing-type-and-zone figures (Portland City Code 33.110.265, Table 110-7) -
+# only used here to decide which taxlots are worth a real assessor sqft fetch (RIP itself, and its cottage-
+# cluster figures, are computed at read time by index.html's own ripMaximumUnits and
+# build_aggregation_layers.py's own rip_max_units, not by this script).
 RIP_SIXPLEX_MIN_SQFT = {'R20': 12000, 'R10': 6000, 'R7': 4200, 'R5': 3000, 'R2.5': 1500}
-# Cottage Cluster: real min/max site area straight from Portland City Code 33.110.265.G.1-2. R20 excluded
-# (cottage clusters aren't a legal option there at all - "n/a" in the real minimum-lot-size table).
-COTTAGE_CLUSTER_MIN_SQFT = {'R10': 7000, 'R7': 7000, 'R5': 5000, 'R2.5': 5000}
-COTTAGE_CLUSTER_MAX_SQFT = 43560
-COTTAGE_CLUSTER_SQFT_PER_UNIT = 500
-COTTAGE_CLUSTER_MAX_UNITS = 16
-
-
-def rip_max_units(zone, sqft):
-    if zone not in RIP_SIXPLEX_MIN_SQFT or sqft is None:
-        return None  # Not one of the 5 single-dwelling zones this table covers, or no real sqft to test against
-    best = 2  # Duplex/detached duplex - "No minimum" lot size, always available
-    if sqft >= RIP_SIXPLEX_MIN_SQFT[zone]:
-        best = max(best, 6)
-    cc_min = COTTAGE_CLUSTER_MIN_SQFT.get(zone)
-    if cc_min is not None and cc_min <= sqft <= COTTAGE_CLUSTER_MAX_SQFT:
-        cc_units = min(int(sqft // COTTAGE_CLUSTER_SQFT_PER_UNIT), COTTAGE_CLUSTER_MAX_UNITS)
-        best = max(best, cc_units)
-    return best
 
 
 def fetch_portland_zoning_features():
@@ -123,7 +92,6 @@ def fetch_portland_zoning_features():
             break
         offset += len(page)
         time.sleep(0.2)
-        time.sleep(0.1)
     with open(ZONING_CHECKPOINT_PATH, 'w') as f:
         json.dump(features, f)
     return features
@@ -186,10 +154,10 @@ def main():
             print('  joined %d / %d' % (i + 1, len(portland_res)))
     print('  unmatched (no zoning polygon found): %d / %d' % (unmatched_zone, len(portland_res)))
 
-    # sqft/RIP only matter for the 5 single-dwelling zones RIP itself actually applies to (see rip_max_units) -
-    # narrowed down AFTER the real zone join above, not before, so a taxlot's own newly-looked-up zone code
-    # decides this, not its (unrelated) Metro classification. Keeps the slow, real per-taxlot assessor fetch
-    # below scoped to only the taxlots that could ever actually use its result.
+    # sqft only matters for the 5 single-dwelling zones RIP_SIXPLEX_MIN_SQFT covers - narrowed down AFTER the
+    # real zone join above, not before, so a taxlot's own newly-looked-up zone code decides this, not its
+    # (unrelated) Metro classification. Keeps the slow, real per-taxlot assessor fetch below scoped to only
+    # the taxlots that could ever actually use its result.
     rip_eligible = [t for t in portland_res if t.get('portlandZoneClass') in RIP_SIXPLEX_MIN_SQFT]
     print('  %d / %d are in a RIP-eligible zone (R20/R10/R7/R5/R2.5) - only these need real assessor sqft' % (len(rip_eligible), len(portland_res)))
 
@@ -214,7 +182,7 @@ def main():
                 json.dump({'completed_batches': i + 1, 'sqft_by_tlid': sqft_by_tlid}, f)
         time.sleep(0.05)
 
-    print('Computing real sqft (assessor value, or acres*43560 fallback) and RIP max units...')
+    print('Computing real sqft (assessor value, or acres*43560 fallback)...')
     real_sqft_count = 0
     for t in rip_eligible:
         real = sqft_by_tlid.get(t['tlid'])
@@ -223,8 +191,15 @@ def main():
             real_sqft_count += 1
         else:
             t['sqft'] = round(t['acres'] * 43560, 1)
-        t['ripMaxUnits'] = rip_max_units(t.get('portlandZoneClass'), t['sqft'])
     print('  %d / %d taxlots got a real assessor sqft value (rest fell back to acres*43560)' % (real_sqft_count, len(rip_eligible)))
+
+    # One-time cleanup: a previous version of this script wrote a ripMaxUnits field that nothing downstream
+    # ever reads (index.html's own ripMaximumUnits and build_aggregation_layers.py's own rip_max_units both
+    # recompute the same figure independently from sqft/zone at read time instead) - write_taxlot_dataset
+    # derives its column list from whatever keys are actually present on each taxlot dict, so a stale field
+    # from an old run stays in every future write unless explicitly dropped here.
+    for t in taxlots:
+        t.pop('ripMaxUnits', None)
 
     print('Writing updated taxlot dataset...')
     write_taxlot_dataset(taxlots, TAXLOT_DATASET_PATH)

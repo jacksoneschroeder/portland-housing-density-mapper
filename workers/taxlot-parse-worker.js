@@ -28,10 +28,9 @@
 // message (index.html, and this worker's own postMessage contract) is completely unaffected by the format
 // change - the reconstruction is real per-taxlot object allocation (unavoidable, that's what index.html
 // actually needs), but it's fast compared to the fetch/decompress/parse this already does.
-// True on a plain local dev server (127.0.0.1/localhost) - same check as index.html's own isLocalDevServer,
-// duplicated rather than shared since this worker runs in a separate global scope with no access to that
-// script - just adds a reassuring note onto the warning below so the 404 this route always produces
-// locally (it only resolves once actually deployed behind the Cloudflare Worker) doesn't read as a real bug.
+// True on a plain local dev server (127.0.0.1/localhost) - just adds a reassuring note onto the warning
+// below so the 404 this route always produces locally (it only resolves once actually deployed behind the
+// Cloudflare Worker) doesn't read as a real bug.
 function isLocalDevServer() {
     return ['localhost', '127.0.0.1'].indexOf(self.location.hostname) !== -1;
 }
@@ -49,8 +48,7 @@ self.onmessage = function(e) {
     });
 };
 
-// Same byte-level progress approach as index.html's own (now-unused-for-this-purpose)
-// fetchJsonWithProgress. Content-Length reflects the compressed bytes actually transferred over the wire,
+// Byte-level progress via a counting TransformStream. Content-Length reflects the compressed bytes actually transferred over the wire,
 // so the counting TransformStream below sits BEFORE the DecompressionStream and counts raw compressed
 // bytes as they arrive - counting post-decompression bytes instead (as an earlier version of this did)
 // would race ahead of the real transfer, since decompressed output is ~3x larger than what's actually been

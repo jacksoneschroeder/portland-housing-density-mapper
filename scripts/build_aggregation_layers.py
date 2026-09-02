@@ -8,7 +8,7 @@
 #
 # Portland's own zoning code does NOT cap multi-dwelling zones (RM1-4/RX) or commercial/mixed-use zones
 # (CM1-3/CE/CX) by a flat units/acre number - density there is controlled by Floor Area Ratio and other bulk
-# standards instead (confirmed via Portland City Code 33.120 Table 120-3 for RM1-4/RX, and 33.130 Table 130-2
+# standards instead (confirmed via Portland City Code 33.120 Table 120-4 for RM1-4/RX, and 33.130 Table 130-2
 # for CM1-3/CE/CX - neither table has a Maximum Density row for those zones at all). Real flat caps exist for
 # three zones only: RMP (1 unit/1,500 sq ft), CR (1 unit/2,500 sq ft, footnote [1] on Table 130-2, conditional
 # on no Retail Sales/Service or Office use - this tool has no per-taxlot use-type field to check that
@@ -46,7 +46,7 @@ with open(os.path.join(RUNTIME_DATA_DIR, 'density_formulas.json')) as _f:
     DENSITY_FORMULAS = json.load(_f)
 
 # Real Table 110-8 thresholds (from a real screenshot the user provided earlier in this project's history -
-# not guessed), same formula as index.html's own computeRipMaxUnits.
+# not guessed), same formula as index.html's own ripMaximumUnits.
 RIP_SIXPLEX_MIN_SQFT = DENSITY_FORMULAS['ripSixplexMinSqft']
 COTTAGE_CLUSTER_MIN_SQFT = DENSITY_FORMULAS['cottageClusterMinSqft']
 COTTAGE_CLUSTER_MAX_SQFT = DENSITY_FORMULAS['cottageClusterMaxSqft']
@@ -66,7 +66,7 @@ def rip_max_units(zone, sqft):
     return best
 
 
-# Portland City Code 33.120 Table 120-3 - confirmed real via direct lookup, not guessed. RM1-4/RX have no
+# Portland City Code 33.120 Table 120-4 - confirmed real via direct lookup, not guessed. RM1-4/RX have no
 # flat cap at all (FAR-limited instead) - those fall back to Metro's own generalized zoneClass density figure
 # as an approximation (ZONE_CLASS_DENSITY below).
 NO_CAP_ZONES = set(DENSITY_FORMULAS['noCapZones'])
@@ -81,7 +81,7 @@ FAR_CAPPED_ZONES = set(DENSITY_FORMULAS['farCappedZones'])
 # fallback estimate for every zone with no real flat Portland-code cap (NO_CAP_ZONES, FAR_CAPPED_ZONES) or no
 # dedicated formula in this tool at all.
 ZONE_CLASS_DENSITY = DENSITY_FORMULAS['zoneClassDensity']
-RMP_UNITS_PER_ACRE = DENSITY_FORMULAS['rmpUnitsPerAcre']  # Portland City Code 33.120 Table 120-3 - real, 1 unit/1,500 sq ft
+RMP_UNITS_PER_ACRE = DENSITY_FORMULAS['rmpUnitsPerAcre']  # Portland City Code 33.120 Table 120-4 - real, 1 unit/1,500 sq ft
 CR_UNITS_PER_ACRE = DENSITY_FORMULAS['crUnitsPerAcre']  # Portland City Code 33.130 Table 130-2 footnote [1] - real, 1 unit/2,500 sq ft (conditional on no Retail Sales/Service or Office use; applied unconditionally here, no per-taxlot use-type field to check)
 RF_UNITS_PER_ACRE = DENSITY_FORMULAS['rfUnitsPerAcre']  # Portland City Code Ch. 33 Table 610-1 Standard C - real, 1 unit/87,120 sq ft
 
@@ -109,21 +109,23 @@ def taxlot_maximum_units(zone, sqft, acres, existing_units, metro_zone):
     # city code caps by FAR instead of units/acre (CM1-3/CE/CX) or leaves genuinely uncapped outright
     # (RM1-4/RX), and any other zone this tool has no dedicated formula for; everything else
     # (commercial/industrial/unmodeled) falls back to the parcel's own existing units - the same "no known
-    # ceiling to compare against" convention index.html itself already uses (existingMaxUnitsForTaxlot),
-    # rather than fabricating a number or silently excluding the parcel from area aggregates (which would
-    # skew the denominator inconsistently).
+    # ceiling to compare against" convention index.html itself already uses (taxlotMaximumDensity's own final
+    # fallback branch), rather than fabricating a number or silently excluding the parcel from area aggregates (which would
+    # skew the denominator inconsistently). Each real formula's own number is reported as-is, even when a
+    # taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - it's a real
+    # zoning-code ceiling, not a claim about what's already built, so it never gets bumped up to match existing.
     if zone == 'RMP':
-        return max(existing_units, int(RMP_UNITS_PER_ACRE * acres))
+        return int(RMP_UNITS_PER_ACRE * acres)
     if zone == 'CR':
-        return max(existing_units, int(CR_UNITS_PER_ACRE * acres))
+        return int(CR_UNITS_PER_ACRE * acres)
     if zone == 'RF':
-        return max(existing_units, int(RF_UNITS_PER_ACRE * acres))
+        return int(RF_UNITS_PER_ACRE * acres)
     if zone in RIP_SIXPLEX_MIN_SQFT:
         rip = rip_max_units(zone, sqft)
         if rip is not None:
-            return max(existing_units, rip)
+            return rip
     if metro_zone in ZONE_CLASS_DENSITY:
-        return max(existing_units, int(ZONE_CLASS_DENSITY[metro_zone] * acres))
+        return int(ZONE_CLASS_DENSITY[metro_zone] * acres)
     return existing_units
 
 

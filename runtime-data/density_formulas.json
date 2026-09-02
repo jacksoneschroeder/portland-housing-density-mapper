@@ -1,5 +1,5 @@
 {
-  "ripSixplexMinSqft": { "R20": 12000, "R10": 6000, "R7": 4200, "R5": 3000, "R2.5": 1500 },
+  "ripSixplexMinSqft": { "R2.5": 1500, "R5": 3000, "R7": 4200, "R10": 6000, "R20": 12000 },
   "cottageClusterMinSqft": { "R10": 7000, "R7": 7000, "R5": 5000, "R2.5": 5000 },
   "cottageClusterMaxSqft": 43560,
   "cottageClusterMaxUnits": 16,
