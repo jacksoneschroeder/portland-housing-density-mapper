@@ -202,8 +202,9 @@ var CITATIONS = {
     baseZonesCode: 'https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A',
     metroZoneClass: 'https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.',
     ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
+    multiDwellingCode: 'https://www.portland.gov/sites/default/files/code/120-md-zones_3.pdf',
     commercialMixedUseCode: 'https://www.portland.gov/sites/default/files/code/130-c-zones_3.pdf',
-    singleDwellingDensityGuide: 'https://www.portland.gov/ppd/documents/density-and-lot-dimensions-single-dwelling-zones/download',
+    singleDwellingLotCode: 'https://www.portland.gov/sites/default/files/code/610-rf-r2.5-lots_0.pdf',
 };
 document.getElementById('housing-link').href = CITATIONS.housing;
 document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
@@ -251,6 +252,9 @@ var LEGEND_SOURCES = [
     ['Portland "Zoning" Feature Layer', CITATIONS.portlandZoningLayer],
     ['Metro Zoning Generalized Classifications', CITATIONS.metroZoneClass],
     ['Portland City Code 33.110.265 (Residential Infill Options)', CITATIONS.ripCode],
+    ['Portland City Code 33.120.212 (Multi-Dwelling Zones)', CITATIONS.multiDwellingCode],
+    ['Portland City Code Ch. 33.130 (Commercial/Mixed Use Zones)', CITATIONS.commercialMixedUseCode],
+    ['Portland City Code 33.610.100 (Lots in RF Through R2.5 Zones)', CITATIONS.singleDwellingLotCode],
 ];
 document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
     return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
@@ -292,7 +296,7 @@ function fetchAndDecompress(url) {
 // Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
 var formulas = null; // populated once initialDataReady resolves
 var NO_CAP_ZONES = {}; // built from formulas.noCapZones once loaded - object form so `zone in NO_CAP_ZONES` reads the same as before
-var FAR_CAPPED_ZONES = {}; // built from formulas.farCappedZones once loaded - CM1-3/CE/CX: Table 130-2 has no Maximum Density row for these at all, capped by FAR instead (a distinct real-code reason from RM1-4/RX's own no-cap note, so it gets its own note text)
+var FAR_CAPPED_ZONES = {}; // built from formulas.farCappedZones once loaded - CM1-3/CE/CX: Ch. 33.130's own development-standards summary table has no Maximum Density row for these at all, capped by FAR instead (a distinct real-code reason from RM1-4/RX's own no-cap note, so it gets its own note text)
 
 function isResidentialMetroZone(zoneClass) {
     return new RegExp('^(' + formulas.residentialMetroPrefixes.join('|') + ')').test(zoneClass || '');
@@ -309,9 +313,9 @@ function ripMaximumUnits(zone, sqft) {
 function taxlotMaximumDensity(t) {
     // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from. Reports the formula's own number as-is, even when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - this is a real zoning-code ceiling, not a claim about what's already built, so it doesn't get bumped up to match existing.
     var zone = t.portlandZoneClass, v, units;
-    if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft)' }; }
-    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code 33.130 Table 130-2)' }; }
-    if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft - Portland City Code Ch. 33, Table 610-1)' }; }
+    if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft - Portland City Code 33.120.212)' }; }
+    if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use" - Portland City Code Ch. 33.130)' }; }
+    if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft - Portland City Code 33.610.100)' }; }
     if (zone in formulas.ripSixplexMinSqft) {
         var rip = ripMaximumUnits(zone, t.sqft);
         if (rip !== null) { units = rip; v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RIP-eligible)' }; }
@@ -319,8 +323,8 @@ function taxlotMaximumDensity(t) {
     if (t.zoneClass in formulas.zoneClassDensity) {
         units = Math.floor(formulas.zoneClassDensity[t.zoneClass] * t.acres);
         v = units / t.acres;
-        // Four real cases, not two: a zone the city caps by FAR instead of units/acre (CM1-3/CE/CX, Table 130-2 has no Maximum Density row for them) > a zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
-        var note = zone in FAR_CAPPED_ZONES ? 'the city caps ' + zone + ' density by FAR, not du/ac' : zone in NO_CAP_ZONES ? 'the city caps ' + zone + ' by FAR, not du/ac' : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
+        // Four real cases, not two: a zone the city caps by FAR instead of units/acre (CM1-3/CE/CX, Ch. 33.130's own summary table has no Maximum Density row for them) > a zone the city leaves genuinely uncapped (RM1-4/RX) > a known zone this tool just has no dedicated formula for > a taxlot outside every mapped Portland zoning polygon, so it has no real zone code at all (zone is null).
+        var note = zone in FAR_CAPPED_ZONES ? 'the city caps ' + zone + ' density by FAR, not du/ac (Portland City Code Ch. 33.130)' : zone in NO_CAP_ZONES ? 'the city caps ' + zone + ' by FAR, not du/ac (Portland City Code 33.120.212)' : zone ? 'there is no dedicated formula for this zone' : 'there is no zoning detail on file for this taxlot';
         return { value: v, units: units, label: '~' + v.toFixed(1) + ' du/ac (estimated via Metro\'s Zoning Generalized Classification of ' + t.zoneClass + ' because ' + note + ')' };
     }
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
@@ -514,11 +518,11 @@ function buildDensityInfoModal() {
         }
         return '<tr><td>' + zone + '<td>Yes<td>' + text;
     });
-    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code 33.120.212, Table 120-4), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
-    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft)');
-    rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code Ch. 33, Table 610-1)');
-    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code Ch. 33, Table 130-2), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
-    rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code 33.130 Table 130-2)');
+    rows.push('<tr><td>' + formulas.noCapZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code 33.120.212), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
+    rows.push('<tr><td>RMP<td>No<td>' + formulas.rmpUnitsPerAcre + ' du/ac (1 unit/1,500 sq ft - Portland City Code 33.120.212)');
+    rows.push('<tr><td>RF<td>No<td>1 unit per 87,120 ft (~' + formulas.rfUnitsPerAcre.toFixed(1) + ' du/ac; Portland City Code 33.610.100)');
+    rows.push('<tr><td>' + formulas.farCappedZones.join(', ') + '<td>No<td>Capped by FAR, not du/ac (Portland City Code Ch. 33.130), so the density estimate falls back to Metro\'s Zoning Generalized Classifications');
+    rows.push('<tr><td>CR<td>No<td>1 unit per 2,500 feet (~' + formulas.crUnitsPerAcre.toFixed(1) + ' du/ac) "on sites that do not have a Retail Sales And Service or Office use" (Portland City Code Ch. 33.130)');
     document.getElementById('zone-density-table').innerHTML = '<tr><th>Zone<th><a href="' + CITATIONS.ripCode + '" target="_blank" rel="noopener">RIP-eligible?</a><th>Maximum allowed' + rows.join('');
 
     document.getElementById('metro-fallback-text').textContent = 'Metro created the Zoning Generalized Classifications to standardize zoning codes across the metro area, which vary by city. The tool falls back to these classifications when a taxlot either a) does not have data for a Portland zone code or b) has a Portland zone code whose density is capped by FAR, not du/ac.';

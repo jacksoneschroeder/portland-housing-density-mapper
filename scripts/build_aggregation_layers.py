@@ -8,12 +8,16 @@
 #
 # Portland's own zoning code does NOT cap multi-dwelling zones (RM1-4/RX) or commercial/mixed-use zones
 # (CM1-3/CE/CX) by a flat units/acre number - density there is controlled by Floor Area Ratio and other bulk
-# standards instead (confirmed via Portland City Code 33.120 Table 120-4 for RM1-4/RX, and 33.130 Table 130-2
-# for CM1-3/CE/CX - neither table has a Maximum Density row for those zones at all). Real flat caps exist for
-# three zones only: RMP (1 unit/1,500 sq ft), CR (1 unit/2,500 sq ft, footnote [1] on Table 130-2, conditional
-# on no Retail Sales/Service or Office use - this tool has no per-taxlot use-type field to check that
-# condition, so it's applied unconditionally as a best-effort estimate), and RF (1 unit/87,120 sq ft, Table
-# 610-1 Standard C - attached houses aren't allowed in RF at all, so this is the only standard that applies).
+# standards instead (confirmed via Portland City Code 33.120.212 for RM1-4/RX, and Ch. 33.130's own
+# development-standards summary table for CM1-3/CE/CX - neither has a Maximum Density row for those zones at
+# all). Citations here deliberately name a section/chapter, not a table number - a table's own sequential
+# number can and did shift (33.120's "Summary of Development Standards" table moved from 120-3 to 120-4 when
+# the city inserted a new minimum-lot-size table ahead of it), while the section a rule actually lives under
+# does not. Real flat caps exist for three zones only: RMP (1 unit/1,500 sq ft, 33.120.212), CR (1 unit/2,500
+# sq ft, a Ch. 33.130 table footnote conditional on no Retail Sales/Service or Office use - this tool has no
+# per-taxlot use-type field to check that condition, so it's applied unconditionally as a best-effort
+# estimate), and RF (1 unit/87,120 sq ft, 33.610.100 Standard C - attached houses aren't allowed in RF at
+# all, so this is the only standard that applies).
 # The R-zones (R20/R10/R7/R5/R2.5, RIP-eligible) get a real computed max-density number using the same RIP
 # formula as index.html's own ripMaximumUnits. Every other zone's max density is estimated from Metro's own
 # generalized zoneClass density table instead of a real Portland-code number.
@@ -66,14 +70,14 @@ def rip_max_units(zone, sqft):
     return best
 
 
-# Portland City Code 33.120 Table 120-4 - confirmed real via direct lookup, not guessed. RM1-4/RX have no
-# flat cap at all (FAR-limited instead) - those fall back to Metro's own generalized zoneClass density figure
-# as an approximation (ZONE_CLASS_DENSITY below).
+# Portland City Code 33.120.212 (Maximum Density) - confirmed real via direct lookup, not guessed. RM1-4/RX
+# have no flat cap at all (FAR-limited instead) - those fall back to Metro's own generalized zoneClass density
+# figure as an approximation (ZONE_CLASS_DENSITY below).
 NO_CAP_ZONES = set(DENSITY_FORMULAS['noCapZones'])
 
-# Portland City Code 33.130 Table 130-2 - same "no flat cap" situation as RM1-4/RX above, but a distinct real
-# reason (city code chapter/table) worth keeping separate: these are capped by Floor Area Ratio under Table
-# 130-2, which simply has no Maximum Density row for CM1/CM2/CM3/CE/CX at all. Also falls back to
+# Portland City Code Ch. 33.130 - same "no flat cap" situation as RM1-4/RX above, but a distinct real reason
+# worth keeping separate: these are capped by Floor Area Ratio, since the chapter's own development-standards
+# summary table simply has no Maximum Density row for CM1/CM2/CM3/CE/CX at all. Also falls back to
 # ZONE_CLASS_DENSITY.
 FAR_CAPPED_ZONES = set(DENSITY_FORMULAS['farCappedZones'])
 
@@ -81,9 +85,9 @@ FAR_CAPPED_ZONES = set(DENSITY_FORMULAS['farCappedZones'])
 # fallback estimate for every zone with no real flat Portland-code cap (NO_CAP_ZONES, FAR_CAPPED_ZONES) or no
 # dedicated formula in this tool at all.
 ZONE_CLASS_DENSITY = DENSITY_FORMULAS['zoneClassDensity']
-RMP_UNITS_PER_ACRE = DENSITY_FORMULAS['rmpUnitsPerAcre']  # Portland City Code 33.120 Table 120-4 - real, 1 unit/1,500 sq ft
-CR_UNITS_PER_ACRE = DENSITY_FORMULAS['crUnitsPerAcre']  # Portland City Code 33.130 Table 130-2 footnote [1] - real, 1 unit/2,500 sq ft (conditional on no Retail Sales/Service or Office use; applied unconditionally here, no per-taxlot use-type field to check)
-RF_UNITS_PER_ACRE = DENSITY_FORMULAS['rfUnitsPerAcre']  # Portland City Code Ch. 33 Table 610-1 Standard C - real, 1 unit/87,120 sq ft
+RMP_UNITS_PER_ACRE = DENSITY_FORMULAS['rmpUnitsPerAcre']  # Portland City Code 33.120.212 - real, 1 unit/1,500 sq ft
+CR_UNITS_PER_ACRE = DENSITY_FORMULAS['crUnitsPerAcre']  # Portland City Code Ch. 33.130, a table footnote - real, 1 unit/2,500 sq ft (conditional on no Retail Sales/Service or Office use; applied unconditionally here, no per-taxlot use-type field to check)
+RF_UNITS_PER_ACRE = DENSITY_FORMULAS['rfUnitsPerAcre']  # Portland City Code 33.610.100 Standard C - real, 1 unit/87,120 sq ft
 
 # A parcel/area is only kept if residential use is genuinely allowed there - "low density" on commercial,
 # industrial, or park land doesn't mean underused housing capacity, it means housing isn't zoned for that
