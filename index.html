@@ -368,9 +368,9 @@ function infoForShape(mode, t) {
             ['Address', t.address || 'No address on file'],
             ['Zoning classification', t.portlandZoneClass || 'N/A (zoning class not covered by this data)'],
             ['Area', t.acres.toFixed(2) + ' acres'],
+            ['Zoned maximum density', max.label],
             ['Zoned maximum units', max.units == null ? 'Unknown' : max.units],
             ['Existing units', t.existingUnits],
-            ['Zoned maximum density', max.label],
             ['Existing density', t.existingDensity.toFixed(1) + ' units/acre'],
         ] };
     }
@@ -379,9 +379,9 @@ function infoForShape(mode, t) {
         [ID_LABELS[mode], mode === 'zoning' ? t.polygonId : t.name],
         ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
         ['Area', t.acres.toFixed(2) + ' acres'],
+        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' units/acre'],
         ['Zoned maximum units (total)', t.maximumUnits],
         ['Existing units (total)', t.existingUnits],
-        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' units/acre'],
         ['Existing density (mean)', t.existingDensity.toFixed(1) + ' units/acre'],
     ] };
 }
