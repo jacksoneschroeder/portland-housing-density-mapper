@@ -19,12 +19,15 @@ This snapshot was last updated on 2026-08-22 and therefore may not be current. I
 1. `mkdir "Non-essential data"`
 2. `python3 scripts/build_mpa_boundary.py` - builds the Metropolitan Planning Area boundary polygon
    (`runtime-data/mpa_boundary.json`) that every later step clips to.
-3. `python3 scripts/build_taxlot_dataset.py` - fetches every taxlot and zoning polygon in the region, clips to
+3. `python3 scripts/build_city_boundaries.py` - fetches incorporated city limits from Metro's
+   `City_Limits_poly` layer (`runtime-data/city_boundaries.json`), used by `build_aggregation_layers.py`
+   below to find Portland's boundary.
+4. `python3 scripts/build_taxlot_dataset.py` - fetches every taxlot and zoning polygon in the region, clips to
    the MPA boundary, spatially joins each taxlot to its zoning class. Writes
    `runtime-data/taxlot_density_data.json(.gz)`.
-4. `python3 scripts/fetch_taxlot_addresses.py` - adds the address to each taxlot.
-5. `python3 scripts/fetch_taxlot_housing_units.py` - adds the existing housing unit count to each taxlot.
-6. `python3 scripts/add_portland_rip_density.py` - calculates the maximum units allowed per taxlot according to Portland's Residential Infill Project (Portland City Code 33.110.265).
-7. `python3 scripts/build_aggregation_layers.py` - builds the data for the aggregate areas (that is, Portland zoning polygons, census blocks, and census tracts).
+5. `python3 scripts/fetch_taxlot_addresses.py` - adds the address to each taxlot.
+6. `python3 scripts/fetch_taxlot_housing_units.py` - adds the existing housing unit count to each taxlot.
+7. `python3 scripts/add_portland_rip_density.py` - calculates the maximum units allowed per taxlot according to Portland's Residential Infill Project (Portland City Code 33.110.265).
+8. `python3 scripts/build_aggregation_layers.py` - builds the data for the aggregate areas (that is, Portland zoning polygons, census blocks, and census tracts).
 
-Steps 3-6 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
+Steps 4-7 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
