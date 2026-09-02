@@ -127,7 +127,7 @@
                 <table id="info-bar-table"></table>
             </div>
         </div>
-        <div id="zoom-hint">Zoom in to see individual shapes</div>
+        <div id="zoom-hint">Zoom in to see taxlots</div>
         <div id="load-progress">Loading taxlots&hellip;</div>
         <div id="legend-stack">
             <div id="legend">
@@ -552,7 +552,7 @@ var shapesLayer = L.layerGroup().addTo(map);
 
 function redrawShapes() {
     shapesLayer.clearLayers();
-    if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList.remove('hidden'); return; }
+    if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList[viewMode === 'taxlot' && map.getZoom() >= 10 ? 'remove' : 'add']('hidden'); return; }
     document.getElementById('zoom-hint').classList.add('hidden');
 
     var mode = viewMode, th = getThresholds(), bounds = map.getBounds(), showOutlines = document.getElementById('show-outlines-toggle').checked;
