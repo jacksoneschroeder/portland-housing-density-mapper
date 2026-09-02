@@ -44,7 +44,7 @@
             position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333;
         }
-        #load-progress, #zoom-hint { z-index: 500; padding: 8px 12px; }
+        #load-progress, #zoom-hint { z-index: 500; padding: 8px; }
         #legend { margin: 0 0 8px 8px; width: max-content; max-width: calc(100% - 16px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px; pointer-events: auto; }
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
@@ -53,10 +53,10 @@
         #north-arrow { font-weight: bold; text-align: center; line-height: 1.1; }
         #scale-bar-bar { height: 4px; background: #333; border-left: 2px solid #333; border-right: 2px solid #333; }
         #scale-bar-label { margin-top: 2px; }
-        #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; color: #888; font-size: var(--font-small); pointer-events: auto; }
+        #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px; color: #888; font-size: var(--font-small); pointer-events: auto; }
         #legend a, #sources-bar a { color: #06c; }
-        #zoom-hint { top: 16px; left: 50%; transform: translateX(-50%); }
-        #load-progress { top: 16px; right: 16px; }
+        #zoom-hint { top: 8px; left: 50%; transform: translateX(-50%); }
+        #load-progress { top: 8px; right: 8px; }
         .hidden { display: none; }
 
         /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely
