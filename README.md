@@ -1,20 +1,18 @@
 # Portland Housing Density Mapper
 
-A web tool for visualizing Portland's housing density by taxlot, Portland zoning polygon, census block, or census tract. You can run the tool live now on Cloudflare, or clone the repo to run it locally and modify the source.
+A web tool for visualizing Portland's housing density by taxlot, Portland zoning polygon, census block, or census tract. You can run the tool live now on Cloudflare, or clone the repo to run it locally or modify the program.
 
 ## Run the tool live now
 
 https://portland-housing-density-mapper.jacksonschroeder.workers.dev
 
-## Modify the source
+## Run the tool locally, with spatial data from my snapshot
 
-Running `git clone` includes a snapshot of all the spatial data necessary to run the tool. Serve the repo root over HTTP and open `index.html` to see your changes - e.g.:
+Running `git clone` includes a snapshot of all the spatial data necessary to run the tool. Serve the repo root over HTTP and open `index.html` with a command such as `python3 -m http.server 8000`. My snapshot was last updated on 2026-08-22 and therefore may not be current.
 
-```
-python3 -m http.server 8000
-```
+## Run the tool locally, with spatial data from live and official sources
 
-This snapshot was last updated on 2026-08-22 and therefore may not be current. If you want live spatial data, you'll have to regenerate the data in `runtime-data/` with `scripts/`, in this order:
+If you want live spatial data, you'll have to regenerate the data in `runtime-data/` with `scripts/`, in this order:
 
 1. `mkdir "Non-essential data"`
 2. `python3 scripts/build_mpa_boundary.py` - builds the Metropolitan Planning Area boundary polygon
@@ -30,4 +28,4 @@ This snapshot was last updated on 2026-08-22 and therefore may not be current. I
 7. `python3 scripts/add_portland_rip_density.py` - calculates the maximum units allowed per taxlot according to Portland's Residential Infill Project (Portland City Code 33.110.265).
 8. `python3 scripts/build_aggregation_layers.py` - builds the data for the aggregate areas (that is, Portland zoning polygons, census blocks, and census tracts).
 
-Steps 4-7 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
+Steps 4–7 each take a while and checkpoint their progress into the `Non-essential data/` directory so a killed/crashed run resumes instead of starting over. Checkpoints are gitignored.
