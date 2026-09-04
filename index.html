@@ -81,6 +81,7 @@
         .modal-box table { width: 100%; border-collapse: collapse; font-size: var(--font-body); margin-bottom: 4px; }
         .modal-box td, .modal-box th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #eee; }
         .modal-box th { color: #888; font-weight: normal; }
+        #salem-zone-density-table input[type=number] { width: 70px; font-size: var(--font-body); }
         .modal-box a { color: #06c; }
         .modal-box a:hover { color: #04c; }
     </style>
@@ -185,6 +186,10 @@
             <p id="max-density-area-mean-text"></p>
         </div>
         <p id="max-density-generic-text" class="hidden"></p>
+        <div id="max-density-salem-content" class="hidden">
+            <p id="max-density-salem-intro"></p>
+            <table id="salem-zone-density-table"></table>
+        </div>
     </div>
 </div>
 
@@ -360,7 +365,35 @@ function portlandTaxlotMaximumDensity(t) {
 function genericUnknownMaximumDensity(t) {
     return { value: null, units: null, label: 'Unknown (' + CITY_CONFIGS[activeCityId].label + '\'s zoning-code density formulas have not been researched yet)' };
 }
-var MAX_DENSITY_ENGINES = { portland: portlandTaxlotMaximumDensity, salem: genericUnknownMaximumDensity };
+
+// Stand-in for a real researched formula (see genericUnknownMaximumDensity above): rather than this tool
+// researching Salem's own zoning-code density caps, the max-density-info modal lets whoever's looking at the
+// map - someone who already knows Salem's code, e.g. a city planner or commissioner - type in their own
+// units/acre estimate per zone (see buildZoneDensityOverrideTable below). Stored in localStorage only (never
+// sent anywhere), keyed per city so a future third city gets its own independent set. A zone with no override
+// entered yet still falls back to the honest "Unknown" - entering a number is what promotes a zone out of that
+// state, not just this engine being wired up.
+var ZONE_DENSITY_OVERRIDES = {}; // { cityId: { zoneCode: duPerAcre } }
+function loadZoneDensityOverrides(cityId) {
+    try {
+        var raw = localStorage.getItem('densidwell:zoneDensityOverrides:' + cityId);
+        ZONE_DENSITY_OVERRIDES[cityId] = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        ZONE_DENSITY_OVERRIDES[cityId] = {};
+    }
+}
+function saveZoneDensityOverrides(cityId) {
+    try {
+        localStorage.setItem('densidwell:zoneDensityOverrides:' + cityId, JSON.stringify(ZONE_DENSITY_OVERRIDES[cityId]));
+    } catch (e) {}
+}
+function overridableZoneMaximumDensity(t) {
+    var duac = (ZONE_DENSITY_OVERRIDES[activeCityId] || {})[t.zone];
+    if (!(duac > 0)) return genericUnknownMaximumDensity(t);
+    var units = Math.floor(duac * t.acres);
+    return { value: duac, units: units, label: duac.toLocaleString() + ' du/ac (manual estimate entered for zone ' + t.zone + ' - not from ' + CITY_CONFIGS[activeCityId].label + '\'s own zoning code)' };
+}
+var MAX_DENSITY_ENGINES = { portland: portlandTaxlotMaximumDensity, salem: overridableZoneMaximumDensity };
 function taxlotMaximumDensity(t) {
     return MAX_DENSITY_ENGINES[activeCityId](t);
 }
@@ -558,6 +591,28 @@ function areaMeansText(cfg) {
 // #max-density-portland-content) and a generic sibling shown instead for a city with no researched formulas
 // yet (Salem, currently - see cities.json's hasExistingUnits/hasMaxDensityFormulas flags). Toggled here
 // rather than left to CSS, since which half is even relevant depends on the active city, not a fixed layout.
+// One row per zone in cfg.formulas.residentialZones (the same list that decides which taxlots even show up
+// for this city - see isResidentialSalemZone/TAXLOT_FILTERS above), each with a number input holding that
+// zone's current override, if any. Only taxlot-mode coloring/popups read these live (see
+// overridableZoneMaximumDensity) - the zoning-polygon/tract/block aggregate layers are precomputed server-side
+// in build_aggregation_layers.py and would need a real spatial re-join to reflect a browser-only override, so
+// they stay "Unknown" regardless of what's entered here.
+function buildZoneDensityOverrideTable(cfg) {
+    var overrides = ZONE_DENSITY_OVERRIDES[activeCityId] || (ZONE_DENSITY_OVERRIDES[activeCityId] = {});
+    var table = document.getElementById('salem-zone-density-table');
+    table.innerHTML = '<tr><th>Zone</th><th>Max du/ac</th></tr>' + cfg.formulas.residentialZones.map(function(zone) {
+        return '<tr><td>' + zone + '</td><td><input type="number" min="0" step="1" data-zone="' + zone + '" value="' + (overrides[zone] || '') + '"></td></tr>';
+    }).join('');
+    table.querySelectorAll('input').forEach(function(input) {
+        input.oninput = function() {
+            var val = parseFloat(this.value);
+            if (val > 0) overrides[this.dataset.zone] = val;
+            else delete overrides[this.dataset.zone];
+            saveZoneDensityOverrides(activeCityId);
+            redrawShapes();
+        };
+    });
+}
 function buildDensityInfoModal() {
     var cfg = CITY_CONFIGS[activeCityId];
 
@@ -572,8 +627,18 @@ function buildDensityInfoModal() {
         document.getElementById('existing-density-generic-text').textContent = 'Existing housing-unit counts are not available for ' + cfg.label + ' in this tool\'s current data sources.';
     }
 
+    // A city with formulas.residentialZones (Salem, currently) gets the interactive override table instead of
+    // the flat "Unknown" text - see overridableZoneMaximumDensity above. Any other no-formula city without
+    // that list falls back to the plain generic text, same as before.
+    var overridable = !cfg.hasMaxDensityFormulas && cfg.formulas.residentialZones;
     document.getElementById('max-density-portland-content').classList.toggle('hidden', !cfg.hasMaxDensityFormulas);
-    document.getElementById('max-density-generic-text').classList.toggle('hidden', cfg.hasMaxDensityFormulas);
+    document.getElementById('max-density-generic-text').classList.toggle('hidden', cfg.hasMaxDensityFormulas || overridable);
+    document.getElementById('max-density-salem-content').classList.toggle('hidden', !overridable);
+    if (overridable) {
+        document.getElementById('max-density-salem-intro').innerHTML = cfg.label + '\'s own zoning-code density formulas have not been researched in this tool yet. If you know ' + cfg.label + '\'s zoning code, enter your own maximum units/acre estimate per zone below - it colors taxlots and shows up in taxlot popups immediately. Saved in this browser only; nothing is sent anywhere.';
+        buildZoneDensityOverrideTable(cfg);
+        return;
+    }
     if (!cfg.hasMaxDensityFormulas) {
         document.getElementById('max-density-generic-text').textContent = cfg.label + '\'s own zoning-code density formulas have not been researched yet, so zoned maximum density is not yet available here.';
         return; // Nothing below this builds anything Salem (or any other no-formula city) actually shows.
@@ -809,6 +874,7 @@ function loadCity(cityId) {
 function switchCity(cityId) {
     activeCityId = cityId;
     formulas = CITY_CONFIGS[cityId].formulas;
+    loadZoneDensityOverrides(cityId);
     document.getElementById('city-select').value = cityId;
     applyCityChrome(CITY_CONFIGS[cityId]);
     closeInfoBar();
