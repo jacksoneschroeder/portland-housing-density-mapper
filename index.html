@@ -2,8 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <!-- Bootstrap value only - the tab needs some title before the script at the bottom of this file runs. APP_TITLE there is the real source of truth and overwrites this on load; keep both in sync if this ever changes. -->
-    <title>Portland Housing Density Mapper</title>
+    <title>DensiDwell</title>
     <link rel="icon" type="image/png" href="Density%20favicon.png?v=1788233480">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"/>
@@ -37,10 +36,13 @@
         /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
         /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
-        #load-progress, #zoom-hint {
-            position: absolute; z-index: 500; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+        #reset-view-btn, #load-progress, #zoom-hint {
+            background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px;
         }
+        #reset-view-btn { cursor: pointer; }
+        #reset-view-btn:disabled { color: #bbb; cursor: default; }
+        #top-right-controls { position: absolute; top: 8px; right: 8px; z-index: 500; display: flex; align-items: center; gap: 8px; }
         #legend { margin: 0 0 8px 8px; width: max-content; max-width: calc(100% - 16px); background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px; pointer-events: auto; }
         #legend b { display: block; margin-bottom: 6px; }
         .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
@@ -51,8 +53,7 @@
         #scale-bar-label { margin-top: 2px; }
         #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px; color: #888; font-size: var(--font-small); pointer-events: auto; }
         #legend a, #sources-bar a { color: #06c; }
-        #zoom-hint { top: 8px; left: 50%; transform: translateX(-50%); }
-        #load-progress { top: 8px; right: 8px; }
+        #zoom-hint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); }
         .hidden { display: none; }
 
         /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
@@ -87,7 +88,7 @@
 <body>
 <div id="app">
     <div id="sidebar">
-        <h1 id="app-title"></h1>
+        <h1>Oregon DensiDwell</h1>
 
         <h2>City</h2>
         <select id="city-select"></select>
@@ -131,7 +132,10 @@
             </div>
         </div>
         <div id="zoom-hint">Zoom in to see taxlots</div>
-        <div id="load-progress">Loading taxlots&hellip;</div>
+        <div id="top-right-controls">
+            <button type="button" id="reset-view-btn" disabled>Reset map extent</button>
+            <div id="load-progress">Loading taxlots&hellip;</div>
+        </div>
         <div id="legend-stack">
             <div id="legend">
                 <b id="legend-title">Existing du/ac</b>
@@ -199,7 +203,6 @@
 var CITY_ORDER = ['portland', 'salem'];
 var CITY_CONFIGS = null;
 var activeCityId = 'portland';
-var APP_TITLE = 'Portland Housing Density Mapper'; // Real value set by applyCityChrome once cities.json loads; this default just matches the bootstrap <title> tag until then.
 var CITATIONS = {};
 var DATA_SOURCES_LABEL = 'Data sources: ';
 var LEGEND_SOURCES = [];
@@ -236,6 +239,26 @@ function updateScaleBar() {
     document.getElementById('scale-bar-label').textContent = s.label;
 }
 map.on('zoomend moveend', updateScaleBar);
+
+// Grayed out once the map is already sitting at the active city's own default center/zoom (from cities.json),
+// so it only lights up once there's actually somewhere to reset back to. Center comparison uses a small
+// epsilon rather than exact equality since Leaflet's CRS projection round-trip (setView -> getCenter) doesn't
+// always come back bit-identical to the original value.
+var resetViewBtn = document.getElementById('reset-view-btn');
+function isAtCityDefaultView() {
+    var cfg = CITY_CONFIGS[activeCityId];
+    if (!cfg) return true;
+    var c = map.getCenter();
+    return map.getZoom() === cfg.zoom && Math.abs(c.lat - cfg.center[0]) < 1e-4 && Math.abs(c.lng - cfg.center[1]) < 1e-4;
+}
+function updateResetViewBtn() {
+    resetViewBtn.disabled = isAtCityDefaultView();
+}
+map.on('zoomend moveend', updateResetViewBtn);
+resetViewBtn.onclick = function() {
+    var cfg = CITY_CONFIGS[activeCityId];
+    map.setView(cfg.center, cfg.zoom);
+};
 
 // Every data source the active city draws from - LEGEND_SOURCES/sources-bar are (re)built by applyCityChrome
 // below from CITY_CONFIGS[activeCityId].legendSources, read by both the on-screen sources line (with real
@@ -701,14 +724,11 @@ var TAXLOT_NORMALIZERS = {
     salem: function(t) { return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, zone: t.zoneCode, acres: t.acres, existingUnits: 0, existingDensity: 0 }; },
 };
 
-// Applies everything about the active city that isn't the map data itself (that's loadCity, below): title,
-// sidebar copy, citations/sources bar, map framing, and disabling the "existing" color-by option for a city
-// with no existing-unit data (forcing back to "maximum" if it was selected - there's nothing real to color by
-// otherwise).
+// Applies everything about the active city that isn't the map data itself (that's loadCity, below): sidebar
+// copy, citations/sources bar, map framing, and disabling the "existing" color-by option for a city with no
+// existing-unit data (forcing back to "maximum" if it was selected - there's nothing real to color by
+// otherwise). The app's own name (the <title>/sidebar <h1>) is static now - it no longer varies per city.
 function applyCityChrome(cfg) {
-    APP_TITLE = cfg.label + ' Housing Density Mapper';
-    document.title = APP_TITLE;
-    document.getElementById('app-title').textContent = APP_TITLE;
     document.getElementById('zoning-mode-label').textContent = cfg.zoningPolygonLabel;
     document.getElementById('sidebar-note').textContent = cfg.sidebarNote;
 

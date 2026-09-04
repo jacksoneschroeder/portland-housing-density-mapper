@@ -1,10 +1,10 @@
-# Portland Housing Density Mapper
+# Oregon DensiDwell
 
-A web tool for visualizing Portland's housing density by taxlot, Portland zoning polygon, census block, or census tract. You can run the tool live now on Cloudflare, or clone the repo to run it locally or modify the program.
+A web tool for visualizing Oregon cities' housing density by taxlot, zoning polygon, census block, or census tract - existing density alongside the maximum density each zone allows. Currently covers Portland and Salem. You can run the tool live now on Cloudflare, or clone the repo to run it locally or modify the program.
 
 ## Run the tool live now
 
-https://portland-housing-density-mapper.jacksonschroeder.workers.dev
+https://densidwell.jacksonschroeder.workers.dev
 
 ## Run the tool locally, with spatial data from my snapshot
 

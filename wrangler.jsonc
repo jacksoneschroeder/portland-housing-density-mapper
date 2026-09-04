@@ -1,5 +1,5 @@
 {
-  "name": "portland-housing-density-mapper",
+  "name": "densidwell",
   "compatibility_date": "2026-07-31",
   "main": "./workers/density-mapper-worker.js",
   "build": {
