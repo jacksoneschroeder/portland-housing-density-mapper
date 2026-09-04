@@ -8,7 +8,8 @@
 # it in the repo means anyone who just clones this can run the app locally without needing R2 access at all.
 # It's still excluded from the deployed site itself, though - production always goes through the Worker + R2
 # binding instead (see workers/density-mapper-worker.js).
-runtime-data/taxlot_density_data.json
+runtime-data/portland_taxlot_density_data.json
+runtime-data/salem_taxlot_density_data.json
 
 # Build checkpoints - crash-recovery debris, never meant to be kept
 taxlot_features_checkpoint*.json*
@@ -17,8 +18,10 @@ taxlot_addresses_checkpoint.json
 taxlot_housing_units_checkpoint.json
 portland_rip_zoning_checkpoint.json
 portland_rip_assessor_checkpoint.json
-census_tracts_checkpoint.json
-census_blocks_checkpoint.json
+*_census_tracts_checkpoint.json
+*_census_blocks_checkpoint.json
+salem_taxlot_checkpoint.json
+salem_zoning_checkpoint.json
 
 # Python bytecode cache - regenerated locally whenever a script's run, never meant to be tracked
 __pycache__/

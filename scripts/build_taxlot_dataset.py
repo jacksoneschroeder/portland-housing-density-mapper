@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
-# Offline preprocessing: fetches every taxlot and zoning polygon in the three-county RLIS region, clips to
-# the Metropolitan Planning Area (see build_mpa_boundary.py - run that first) since that's the real
-# geography this tool's own residential-zoning join cares about (fully contained within the wider
-# three-county taxlot extent, which reaches past it into rural/exurban land this tool has no reason to
-# cover), and spatially joins each remaining taxlot to its zoning class. Output is a flat JSON array the app
-# loads once and filters entirely client-side - no live spatial queries needed at runtime.
+# Offline preprocessing: builds the raw per-taxlot dataset for one city, dispatched by build_portland()/
+# build_salem() below (main() picks between them via sys.argv[1], defaulting to 'portland'). Output is a flat
+# JSON array the app loads once and filters entirely client-side - no live spatial queries needed at runtime.
+#
+# build_portland() fetches every taxlot and zoning polygon in the three-county RLIS region, clips to the
+# Metropolitan Planning Area (see build_mpa_boundary.py - run that first) since that's the real geography
+# this tool's own residential-zoning join cares about (fully contained within the wider three-county taxlot
+# extent, which reaches past it into rural/exurban land this tool has no reason to cover), and spatially
+# joins each remaining taxlot to its zoning class.
+#
+# build_salem() is much simpler: Marion County's own parcel layer already carries Salem's real zoning code
+# directly on each record (ZONECODE) - no spatial join needed, unlike Portland's own Metro-generalized
+# zoneClass. Filtered server-side to CITY='SALEM' rather than fetching all of Marion County. Salem also
+# extends into Polk County (West Salem) - Marion County's parcel layer has no coverage there at all, a real,
+# known gap (see cities.json's own sidebarNote), not something server-side filtering can fetch around.
 #
 # This is a trimmed fork of the same-named script in the TOD-PITCH repo, which also computes per-taxlot
 # transit-distance fields this tool never uses - removed here rather than carried over, since that would
 # otherwise require porting a whole separate transit-stop-fetching pipeline this tool has no use for.
 #
-# Run with: python3 scripts/build_mpa_boundary.py, then python3 scripts/build_taxlot_dataset.py
-# Output:   runtime-data/taxlot_density_data.json (raw, kept locally as a cache/reference - never uploaded)
-#           runtime-data/taxlot_density_data.json.gz (the one that actually gets uploaded to R2 - see its
-#           own comment below for why)
+# Run with: python3 scripts/build_mpa_boundary.py, then python3 scripts/build_taxlot_dataset.py [portland|salem]
+# Output:   runtime-data/{city}_taxlot_density_data.json (raw, kept locally as a cache/reference - never
+#           uploaded) and runtime-data/{city}_taxlot_density_data.json.gz (the one that actually gets
+#           uploaded to R2 - see its own comment below for why)
 
 import gzip
 import json
 import math
 import os
+import sys
 import time
 import urllib.request
 import urllib.parse
@@ -27,6 +37,9 @@ import http.client
 
 TAXLOT_SERVICE_URL = 'https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Taxlots_(Public)/FeatureServer/3/query'
 ZONING_SERVICE_URL = 'https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Zoning/FeatureServer/1/query'
+# Marion County's own open-data parcel layer (covers Salem's Marion County side only - see build_salem()'s own
+# comment above on the West Salem/Polk County gap).
+SALEM_PARCELS_URL = 'https://services1.arcgis.com/sYGZnQPdJ0azuLyn/arcgis/rest/services/Parcels_OpenDataView/FeatureServer/0/query'
 
 RUNTIME_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'runtime-data')
 # Crash-recovery checkpoints live here, not the repo root - large, gitignored build debris, same folder as
@@ -153,7 +166,11 @@ def load_taxlot_dataset(path=None):
     # of taxlots) rather than erroring obviously - this is the one place that mistake can happen, so every
     # reader should go through here instead of calling json.load() on this file directly.
     if path is None:
-        path = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+        # Default stays Portland-specific (not city-parameterized) since every existing caller that relies on
+        # this default (fetch_taxlot_addresses.py, fetch_taxlot_housing_units.py, add_portland_rip_density.py)
+        # is itself a Portland-only enrichment step - Salem's own dataset never needs any of them (see
+        # build_salem()'s own comment on why no equivalent spatial-join/enrichment pass exists for it).
+        path = os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json')
     with open(path) as f:
         parsed = json.load(f)
     fields = parsed['fields']
@@ -176,7 +193,7 @@ def write_taxlot_dataset(taxlots, out_path=None):
     # parsing, so every other consumer is unaffected. A taxlot missing a field entirely (e.g. 'address' on a
     # taxlot with no MAF match) gets null in that position via .get(), not a KeyError.
     if out_path is None:
-        out_path = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+        out_path = os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json')  # See load_taxlot_dataset's own comment on why this default stays Portland-only.
 
     fields = set()
     for t in taxlots:
@@ -192,9 +209,9 @@ def write_taxlot_dataset(taxlots, out_path=None):
     # ~79% smaller in practice (repetitive numeric patterns across hundreds of thousands of records compress
     # extremely well even after the columnar rewrite above), which is also what actually gets this under
     # R2's ~300MB dashboard upload cap without needing the S3-compatible API or wrangler for a manual
-    # upload. Upload THIS file to R2 under the object key taxlot_density_data.json (same key the Worker
-    # already reads, see workers/density-mapper-worker.js) - not the raw one above, which is kept locally
-    # only as a cache/reference. That Worker does NOT set Content-Encoding: gzip on this (see its own
+    # upload. Upload THIS file to R2 under the object key {city}_taxlot_density_data.json (same keys
+    # workers/density-mapper-worker.js's own R2_KEYS map reads) - not the raw one above, which is kept
+    # locally only as a cache/reference. That Worker does NOT set Content-Encoding: gzip on this (see its own
     # comment on why that turned out to be unreliable behind a Cloudflare Access setup) -
     # taxlot-parse-worker.js decompresses it client-side instead, via the native DecompressionStream API.
     gz_path = out_path + '.gz'
@@ -306,7 +323,42 @@ def point_in_boundary_indexed(lng, lat, row_index, cell_size):
     return inside
 
 
-def main():
+def build_salem():
+    print('Fetching every Marion County parcel within Salem city limits...')
+    features = fetch_all_features(
+        SALEM_PARCELS_URL, "CITY='SALEM'", 'TAXLOT,SITUS,ACRES,ZONECODE',
+        {'returnGeometry': 'true', 'returnCentroid': 'true'},
+        checkpoint_name=os.path.join(NON_ESSENTIAL_DATA_DIR, 'salem_taxlot_checkpoint.json'),
+    )
+    print('Total Salem parcels fetched: %d' % len(features))
+
+    output = []
+    seen_taxlot = set()
+    for f in features:
+        taxlot = f['attributes']['TAXLOT']
+        if not taxlot or taxlot in seen_taxlot:
+            continue
+        seen_taxlot.add(taxlot)
+        acres = f['attributes']['ACRES']
+        if not acres or acres <= 0:
+            continue
+        if not f.get('geometry', {}).get('rings') or not f.get('centroid'):
+            continue  # Same "excluded rather than guessed" convention build_portland() uses below for a taxlot with no real shape/centroid.
+        output.append({
+            'taxlot': taxlot,
+            'address': f['attributes']['SITUS'] or None,
+            'acres': acres,
+            'zoneCode': f['attributes']['ZONECODE'],
+            'lat': f['centroid']['y'],
+            'lng': f['centroid']['x'],
+            'rings': compress_rings(f['geometry']['rings'], SIMPLIFY_TOLERANCE_METERS, COORDINATE_DECIMALS),
+        })
+
+    print('Final dataset: %d Salem taxlots' % len(output))
+    write_taxlot_dataset(output, os.path.join(RUNTIME_DATA_DIR, 'salem_taxlot_density_data.json'))
+
+
+def build_portland():
     print('Loading MPA boundary...')
     mpa_rings = load_mpa_boundary()
     mpa_row_index = build_boundary_row_index(mpa_rings, GRID_SIZE)
@@ -395,6 +447,16 @@ def main():
 
     print('Final dataset: %d taxlots' % len(output))
     write_taxlot_dataset(output)
+
+
+BUILDERS = {'portland': build_portland, 'salem': build_salem}
+
+
+def main():
+    city = sys.argv[1] if len(sys.argv) > 1 else 'portland'
+    if city not in BUILDERS:
+        raise SystemExit('Unknown city %r - expected one of %s' % (city, sorted(BUILDERS)))
+    BUILDERS[city]()
 
 
 if __name__ == '__main__':

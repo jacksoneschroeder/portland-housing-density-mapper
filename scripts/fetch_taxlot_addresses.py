@@ -22,7 +22,7 @@
 # fields in the first place (see build_taxlot_dataset.py's own header comment for why).
 #
 # Run with: python3 scripts/fetch_taxlot_addresses.py
-# Reads/writes: runtime-data/taxlot_density_data.json (+ .gz)
+# Reads/writes: runtime-data/portland_taxlot_density_data.json (+ .gz) - Portland only, see build_taxlot_dataset.py's load_taxlot_dataset()/write_taxlot_dataset() own comment on why Salem has no equivalent enrichment step.
 
 import json
 import os
@@ -31,7 +31,7 @@ import time
 from build_taxlot_dataset import RUNTIME_DATA_DIR, NON_ESSENTIAL_DATA_DIR, post_query, load_taxlot_dataset, write_taxlot_dataset
 
 MAF_URL = 'https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Master_Address_File_MAF/FeatureServer/0/query'
-TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json')
 CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'taxlot_addresses_checkpoint.json')
 # ~300 TLIDs/request keeps the where-clause a safe size (tested empirically well under any real limit) while
 # keeping total request count manageable (~1900 requests for 571k MPA-clipped taxlots) - MAF's own maxRecordCount (2000)

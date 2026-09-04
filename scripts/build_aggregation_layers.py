@@ -27,14 +27,29 @@
 # formula as index.html's own ripMaximumUnits. Every other zone's max density is estimated from Metro's own
 # generalized zoneClass density table instead of a real Portland-code number.
 #
-# Run with: python3 scripts/build_aggregation_layers.py
-# Reads: Non-essential data/portland_rip_zoning_checkpoint.json, runtime-data/taxlot_density_data.json.gz,
-#        runtime-data/city_boundaries.json, live Census TIGERweb REST API
-# Writes: runtime-data/zoning_polygons.json.gz, runtime-data/census_tracts.json.gz, runtime-data/census_blocks.json.gz
+# build_salem_layers() is the same idea for Salem, but simpler: Salem has no researched zoning-code density
+# formulas yet (see cities.json's own hasMaxDensityFormulas: false), so maximumUnits/maximumDensity are stubbed
+# to None for every Salem zoning polygon/tract/block instead of computed - mirrors index.html's own
+# genericUnknownMaximumDensity. Zoning polygons are fetched fresh from Salem's own Zoning_Designation service
+# (no cached checkpoint to reuse the way Portland's add_portland_rip_density.py fetch is reused below); census
+# tracts/blocks reuse fetch_tigerweb_layer as-is (already bbox-parameterized, not Portland-specific) with a
+# bbox derived from that zoning-polygon fetch's own extent - Salem isn't in city_boundaries.json (that file is
+# Metro's own "Cities by impact" layer, an unrelated feature - see build_city_boundaries.py), so there's no
+# separate city-boundary source to derive it from the way Portland's build_portland_layers() does.
+#
+# Run with: python3 scripts/build_aggregation_layers.py [portland|salem]
+# Reads (portland): Non-essential data/portland_rip_zoning_checkpoint.json,
+#                    runtime-data/portland_taxlot_density_data.json.gz, runtime-data/city_boundaries.json,
+#                    live Census TIGERweb REST API
+# Reads (salem):     runtime-data/salem_taxlot_density_data.json.gz, live Salem Zoning_Designation service,
+#                    live Census TIGERweb REST API
+# Writes: runtime-data/{city}_zoning_polygons.json.gz, runtime-data/{city}_census_tracts.json.gz,
+#         runtime-data/{city}_census_blocks.json.gz
 
 import gzip
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -45,14 +60,19 @@ RUNTIME_DATA_DIR = os.path.join(BASE_DIR, 'runtime-data')
 NON_ESSENTIAL_DATA_DIR = os.path.join(BASE_DIR, 'Non-essential data')
 
 TIGERWEB_URL = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer'
+SALEM_ZONING_URL = 'https://services.arcgis.com/kIA6yS9KDGqZL7U3/arcgis/rest/services/Zoning_Designation/FeatureServer/0/query'
 MAX_RETRIES = 6
 RETRY_TRANSIENT_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, OSError)
 
-# Single source of truth for every zoning/density constant below - index.html fetches this exact same file
-# at runtime, so the two can never silently drift the way they once did (see this project's own history for
-# the real bug that came from keeping two hand-copied constant tables in sync instead).
-with open(os.path.join(RUNTIME_DATA_DIR, 'density_formulas.json')) as _f:
-    DENSITY_FORMULAS = json.load(_f)
+# Single source of truth for every zoning/density constant below (Portland's own - Salem has no formulas of its
+# own yet, see cities.json's hasMaxDensityFormulas) - index.html fetches this exact same file at runtime, so
+# the two can never silently drift the way they once did (see this project's own history for the real bug that
+# came from keeping two hand-copied constant tables in sync instead). Replaces the old Portland-only
+# density_formulas.json entirely - cities.json holds every city's config, keyed by city id.
+with open(os.path.join(RUNTIME_DATA_DIR, 'cities.json')) as _f:
+    CITY_CONFIGS = json.load(_f)
+DENSITY_FORMULAS = CITY_CONFIGS['portland']['formulas']
+SALEM_RESIDENTIAL_ZONES = set(CITY_CONFIGS['salem']['formulas']['residentialZones'])
 
 # Real Table 110-8 thresholds (from a real screenshot the user provided earlier in this project's history -
 # not guessed), same formula as index.html's own ripMaximumUnits.
@@ -284,11 +304,16 @@ def ring_bbox(rings):
     return min(lngs), min(lats), max(lngs), max(lats)
 
 
-def aggregate_onto_polygons(polygons_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone):
+def aggregate_onto_polygons(polygons_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone=None, taxlot_sqft=None, taxlot_metro_zone=None, max_units_fn=None):
     # existingDensity and maximumDensity (both computed by the caller as units/acres) are true area-weighted
     # means - sum of each taxlot's own existing/maximum units, divided by the same sum of acres - not a
     # zone-level label or a majority-vote shortcut. That keeps the two figures directly comparable, and
     # matches the taxlot-mode popup's own per-parcel numbers exactly when a polygon happens to hold just one.
+    #
+    # max_units_fn is optional (None for a city with no researched zoning-code density formulas yet - Salem
+    # currently, see build_salem_layers() - mirrors index.html's own genericUnknownMaximumDensity): every
+    # polygon's own maximumUnits comes back None too in that case, since there's nothing real to sum in the
+    # first place, not just an unset default.
     results = []
     t0 = time.time()
     for i, rings in enumerate(polygons_rings):
@@ -296,7 +321,7 @@ def aggregate_onto_polygons(polygons_rings, grid, taxlot_lnglat, taxlot_units, t
         cand = grid.candidates(*bbox)
         total_units = 0.0
         total_acres = 0.0
-        total_maximum_units = 0.0
+        total_maximum_units = 0.0 if max_units_fn else None
         for pt_idx in cand:
             lng, lat = taxlot_lnglat[pt_idx]
             if not point_in_rings(lng, lat, rings):
@@ -305,20 +330,63 @@ def aggregate_onto_polygons(polygons_rings, grid, taxlot_lnglat, taxlot_units, t
             acres = taxlot_acres[pt_idx]
             total_units += units
             total_acres += acres
-            total_maximum_units += taxlot_maximum_units(taxlot_zone[pt_idx], taxlot_sqft[pt_idx], acres, units, taxlot_metro_zone[pt_idx])
+            if max_units_fn:
+                total_maximum_units += max_units_fn(taxlot_zone[pt_idx], taxlot_sqft[pt_idx], acres, units, taxlot_metro_zone[pt_idx])
         results.append({
             'existingUnits': total_units,
             'acres': round(total_acres, 4),
-            'maximumUnits': round(total_maximum_units, 1),
+            'maximumUnits': round(total_maximum_units, 1) if total_maximum_units is not None else None,
         })
         if (i + 1) % 2000 == 0:
             print('  ...%d/%d (%.1fs)' % (i + 1, len(polygons_rings), time.time() - t0))
     return results
 
 
-def main():
+# Shared by both build_portland_layers() and build_salem_layers() - fetches the 2 TIGERweb layers this app
+# uses (Census Tracts, 2020 Census Blocks) for whatever bbox is passed in, aggregates onto them, and writes
+# each city's own {city}_census_tracts.json.gz/{city}_census_blocks.json.gz. max_units_fn/taxlot_zone/
+# taxlot_sqft/taxlot_metro_zone are forwarded to aggregate_onto_polygons as-is (None for Salem - see its own
+# comment on what that means).
+def build_census_layers(city_id, bbox, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone=None, taxlot_sqft=None, taxlot_metro_zone=None, max_units_fn=None):
+    for layer_id, layer_name, out_name, checkpoint_name in [
+        (0, 'Census Tracts', '%s_census_tracts.json.gz' % city_id, '%s_census_tracts_checkpoint.json' % city_id),
+        (2, '2020 Census Blocks', '%s_census_blocks.json.gz' % city_id, '%s_census_blocks_checkpoint.json' % city_id),
+    ]:
+        print()
+        print('=== %s ===' % layer_name)
+        envelope = {'xmin': bbox[0], 'ymin': bbox[1], 'xmax': bbox[2], 'ymax': bbox[3], 'spatialReference': {'wkid': 4326}}
+        checkpoint_path = os.path.join(NON_ESSENTIAL_DATA_DIR, checkpoint_name)
+        features = fetch_tigerweb_layer(layer_id, envelope, 'GEOID,NAME', checkpoint_name=checkpoint_path)
+        print('fetched %d features' % len(features))
+        rings_list = []
+        names = []
+        for feat in features:
+            geom = feat.get('geometry') or {}
+            rings = geom.get('rings')
+            if not rings:
+                continue
+            rings_list.append(rings)
+            names.append(feat['attributes'].get('NAME') or feat['attributes'].get('GEOID'))
+        agg = aggregate_onto_polygons(rings_list, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone, max_units_fn)
+        out = []
+        for rings, name, a in zip(rings_list, names, agg):
+            if a['acres'] <= 0:
+                continue
+            out.append({
+                'name': name,
+                'rings': rings,
+                'existingUnits': round(a['existingUnits']),
+                'maximumUnits': a['maximumUnits'],
+                'acres': a['acres'],
+                'existingDensity': round(a['existingUnits'] / a['acres'], 2),
+                'maximumDensity': round(a['maximumUnits'] / a['acres'], 2) if a['maximumUnits'] is not None else None,
+            })
+        write_gzip_json(os.path.join(RUNTIME_DATA_DIR, out_name), out)
+
+
+def build_portland_layers():
     print('Loading taxlot dataset...')
-    tax = load_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json.gz'))
+    tax = load_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json.gz'))
     fields = tax['fields']
     idx = {f: i for i, f in enumerate(fields)}
     city_i, lat_i, lng_i, eu_i, ac_i, pzc_i, sqft_i, zc_i = (
@@ -359,7 +427,7 @@ def main():
     zoning_rings = [f['geometry']['rings'] for f in zoning_features]
     zoning_zones = [f['attributes']['ZONE'] for f in zoning_features]
     zoning_ids = [f['attributes']['OBJECTID'] for f in zoning_features]
-    zoning_agg = aggregate_onto_polygons(zoning_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone)
+    zoning_agg = aggregate_onto_polygons(zoning_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone, taxlot_maximum_units)
     zoning_out = []
     for rings, zone, polygon_id, agg in zip(zoning_rings, zoning_zones, zoning_ids, zoning_agg):
         if agg['acres'] <= 0 or zone not in RESIDENTIAL_PORTLAND_ZONES:
@@ -369,47 +437,105 @@ def main():
             'polygonId': polygon_id,
             'rings': rings,
             'existingUnits': round(agg['existingUnits']),
-            'maximumUnits': round(agg['maximumUnits']),
+            'maximumUnits': agg['maximumUnits'],
             'acres': agg['acres'],
             'existingDensity': round(agg['existingUnits'] / agg['acres'], 2),
             'maximumDensity': round(agg['maximumUnits'] / agg['acres'], 2),
         })
-    write_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'zoning_polygons.json.gz'), zoning_out)
+    write_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'portland_zoning_polygons.json.gz'), zoning_out)
 
-    for layer_id, layer_name, out_name, checkpoint_name in [
-        (0, 'Census Tracts', 'census_tracts.json.gz', 'census_tracts_checkpoint.json'),
-        (2, '2020 Census Blocks', 'census_blocks.json.gz', 'census_blocks_checkpoint.json'),
-    ]:
-        print()
-        print('=== %s ===' % layer_name)
-        envelope = {'xmin': bbox[0], 'ymin': bbox[1], 'xmax': bbox[2], 'ymax': bbox[3], 'spatialReference': {'wkid': 4326}}
-        checkpoint_path = os.path.join(NON_ESSENTIAL_DATA_DIR, checkpoint_name)
-        features = fetch_tigerweb_layer(layer_id, envelope, 'GEOID,NAME', checkpoint_name=checkpoint_path)
-        print('fetched %d features' % len(features))
-        rings_list = []
-        names = []
-        for feat in features:
-            geom = feat.get('geometry') or {}
-            rings = geom.get('rings')
-            if not rings:
-                continue
-            rings_list.append(rings)
-            names.append(feat['attributes'].get('NAME') or feat['attributes'].get('GEOID'))
-        agg = aggregate_onto_polygons(rings_list, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone)
-        out = []
-        for rings, name, a in zip(rings_list, names, agg):
-            if a['acres'] <= 0:
-                continue
-            out.append({
-                'name': name,
-                'rings': rings,
-                'existingUnits': round(a['existingUnits']),
-                'maximumUnits': round(a['maximumUnits']),
-                'acres': a['acres'],
-                'existingDensity': round(a['existingUnits'] / a['acres'], 2),
-                'maximumDensity': round(a['maximumUnits'] / a['acres'], 2),
-            })
-        write_gzip_json(os.path.join(RUNTIME_DATA_DIR, out_name), out)
+    build_census_layers('portland', bbox, grid, taxlot_lnglat, taxlot_units, taxlot_acres, taxlot_zone, taxlot_sqft, taxlot_metro_zone, taxlot_maximum_units)
+
+
+def fetch_all_salem_zoning_features():
+    # Salem's own Zoning_Designation service, fetched fresh every run (unlike Portland's zoning polygons,
+    # which reuse add_portland_rip_density.py's own cached checkpoint) - Salem's ~4,800 polygons are small
+    # enough that there's no real cost to just re-fetching, so there's no checkpoint file for it at all.
+    features = []
+    offset = 0
+    while True:
+        body = post_query(SALEM_ZONING_URL, {
+            'where': '1=1', 'outFields': 'OBJECTID,ZNP_1', 'returnGeometry': 'true', 'outSR': 4326,
+            'resultOffset': offset, 'resultRecordCount': 1000, 'f': 'json',
+        })
+        page = body.get('features', [])
+        features.extend(page)
+        print('  fetched page at offset %d: %d features (running total %d)' % (offset, len(page), len(features)))
+        if not body.get('exceededTransferLimit') or not page:
+            break
+        offset += len(page)
+        time.sleep(0.2)
+    return features
+
+
+def build_salem_layers():
+    print('Loading Salem taxlot dataset...')
+    tax = load_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'salem_taxlot_density_data.json.gz'))
+    fields = tax['fields']
+    idx = {f: i for i, f in enumerate(fields)}
+    lat_i, lng_i, ac_i = idx['lat'], idx['lng'], idx['acres']
+
+    taxlot_lnglat, taxlot_units, taxlot_acres = [], [], []
+    for r in tax['rows']:
+        if not r[ac_i] or r[ac_i] <= 0:
+            continue
+        taxlot_lnglat.append((r[lng_i], r[lat_i]))
+        taxlot_units.append(0)  # No existing-unit data exists for Salem's parcels at all - see cities.json's hasExistingUnits: false.
+        taxlot_acres.append(r[ac_i])
+    print('Salem taxlots with acres > 0:', len(taxlot_lnglat))
+
+    print('Building grid index over taxlot centroids...')
+    grid = GridIndex(taxlot_lnglat)
+
+    print()
+    print('=== Zoning polygons ===')
+    zoning_features = fetch_all_salem_zoning_features()
+    print('fetched zoning features:', len(zoning_features))
+    zoning_rings, zoning_zones, zoning_ids = [], [], []
+    for f in zoning_features:
+        rings = f.get('geometry', {}).get('rings')
+        if not rings:
+            continue
+        zoning_rings.append(rings)
+        zoning_zones.append(f['attributes']['ZNP_1'])
+        zoning_ids.append(f['attributes']['OBJECTID'])
+
+    # Salem's own bbox, derived from this same zoning-polygon fetch's own extent (no separate city-boundary
+    # source needed - Salem isn't in city_boundaries.json, see this file's own header comment) - used below for
+    # the census tract/block fetch.
+    all_lngs = [p[0] for rings in zoning_rings for ring in rings for p in ring]
+    all_lats = [p[1] for rings in zoning_rings for ring in rings for p in ring]
+    bbox = (min(all_lngs), min(all_lats), max(all_lngs), max(all_lats))
+    print('Salem bbox (from zoning extent):', bbox)
+
+    zoning_agg = aggregate_onto_polygons(zoning_rings, grid, taxlot_lnglat, taxlot_units, taxlot_acres)
+    zoning_out = []
+    for rings, zone, polygon_id, agg in zip(zoning_rings, zoning_zones, zoning_ids, zoning_agg):
+        if agg['acres'] <= 0 or zone not in SALEM_RESIDENTIAL_ZONES:
+            continue
+        zoning_out.append({
+            'zone': zone,
+            'polygonId': polygon_id,
+            'rings': rings,
+            'existingUnits': round(agg['existingUnits']),
+            'maximumUnits': None,
+            'acres': agg['acres'],
+            'existingDensity': round(agg['existingUnits'] / agg['acres'], 2),
+            'maximumDensity': None,
+        })
+    write_gzip_json(os.path.join(RUNTIME_DATA_DIR, 'salem_zoning_polygons.json.gz'), zoning_out)
+
+    build_census_layers('salem', bbox, grid, taxlot_lnglat, taxlot_units, taxlot_acres)
+
+
+BUILDERS = {'portland': build_portland_layers, 'salem': build_salem_layers}
+
+
+def main():
+    city = sys.argv[1] if len(sys.argv) > 1 else 'portland'
+    if city not in BUILDERS:
+        raise SystemExit('Unknown city %r - expected one of %s' % (city, sorted(BUILDERS)))
+    BUILDERS[city]()
 
 
 if __name__ == '__main__':

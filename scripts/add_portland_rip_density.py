@@ -28,7 +28,7 @@
 # assessor never recorded (a real, expected data-quality gap - not every taxlot has a full assessor record).
 #
 # Run with: python3 scripts/add_portland_rip_density.py
-# Reads/writes: runtime-data/taxlot_density_data.json (+ .gz)
+# Reads/writes: runtime-data/portland_taxlot_density_data.json (+ .gz) - Portland only, see build_taxlot_dataset.py's load_taxlot_dataset()/write_taxlot_dataset() own comment on why Salem has no equivalent enrichment step.
 
 import json
 import os
@@ -41,7 +41,7 @@ from build_taxlot_dataset import (
 
 PORTLAND_ZONING_URL = 'https://www.portlandmaps.com/od/rest/services/COP_OpenData_ZoningCode/MapServer/16/query'
 PORTLAND_ASSESSOR_URL = 'https://www.portlandmaps.com/arcgis/rest/services/Public/Taxlots/MapServer/0/query'
-TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json')
 ZONING_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_zoning_checkpoint.json')
 ASSESSOR_CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'portland_rip_assessor_checkpoint.json')
 

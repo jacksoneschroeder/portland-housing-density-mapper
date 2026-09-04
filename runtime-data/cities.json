@@ -1,0 +1,101 @@
+{
+  "portland": {
+    "label": "Portland",
+    "center": [45.5152, -122.6784],
+    "zoom": 12,
+    "hasExistingUnits": true,
+    "hasMaxDensityFormulas": true,
+    "zoningPolygonLabel": "Portland zoning polygon",
+    "sidebarNote": "Only taxlots/areas that are zoned for residential use or have existing housing units are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden.",
+    "citations": {
+      "housing": "https://rlisdiscovery.oregonmetro.gov/datasets/drcMetro::housing/about",
+      "taxlotsPublic": "https://rlisdiscovery.oregonmetro.gov/datasets/taxlots-public/about",
+      "zoningLayer": "https://gis-pdx.opendata.arcgis.com/datasets/zoning/about",
+      "baseZonesCode": "https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A",
+      "metroZoneClass": "https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.",
+      "ripCode": "https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf",
+      "zoningCode": "https://www.portland.gov/code/33"
+    },
+    "legendSources": [
+      ["Metro \"Housing\" Feature Layer", "housing"],
+      ["Metro \"Taxlots (Public)\" Feature Layer", "taxlotsPublic"],
+      ["Portland \"Zoning\" Feature Layer", "zoningLayer"],
+      ["Metro Zoning Generalized Classifications", "metroZoneClass"],
+      ["Portland City Code Ch. 33", "zoningCode"]
+    ],
+    "formulas": {
+      "ripSixplexMinSqft": { "R2.5": 1500, "R5": 3000, "R7": 4200, "R10": 6000, "R20": 12000 },
+      "cottageClusterMinSqft": { "R10": 7000, "R7": 7000, "R5": 5000, "R2.5": 5000 },
+      "cottageClusterMaxSqft": 43560,
+      "cottageClusterMaxUnits": 16,
+      "cottageClusterSqftPerUnit": 1000,
+      "rmpUnitsPerAcre": 29,
+      "crUnitsPerAcre": 17.424,
+      "rfUnitsPerAcre": 0.5,
+      "farUnitSizeSqft": 500,
+      "farValues": {
+        "RM1": { "far": 1, "citation": "Portland City Code 33.120.210" },
+        "RM2": { "far": 1.5, "citation": "Portland City Code 33.120.210" },
+        "RM3": { "far": 2, "citation": "Portland City Code 33.120.210" },
+        "RM4": { "far": 4, "citation": "Portland City Code 33.120.210" },
+        "RX": { "far": 4, "citation": "Portland City Code 33.120.210" },
+        "CM1": { "far": 1.5, "citation": "Portland City Code 33.130.205" },
+        "CM2": { "far": 2.5, "citation": "Portland City Code 33.130.205" },
+        "CM3": { "far": 3, "citation": "Portland City Code 33.130.205" },
+        "CE": { "far": 2.5, "citation": "Portland City Code 33.130.205" },
+        "CX": { "far": 4, "citation": "Portland City Code 33.130.205" },
+        "EX": { "far": 3, "citation": "Portland City Code 33.140.205" },
+        "CI2": { "far": 3, "citation": "Portland City Code 33.150.205" },
+        "IR": { "far": 2, "citation": "Portland City Code 33.150.205" }
+      },
+      "noUnitsZones": {
+        "EG1": "Portland City Code 33.140.100",
+        "EG2": "Portland City Code 33.140.100",
+        "CI1": "Portland City Code 33.150.100"
+      },
+      "residentialMetroPrefixes": ["SFR", "MFR", "MUR"],
+      "residentialPortlandZones": ["RF", "R20", "R10", "R7", "R5", "R2.5", "RM1", "RM2", "RM3", "RM4", "RX", "RMP", "CR", "CM1", "CM2", "CM3", "CE", "CX", "EX", "CI2", "IR"],
+      "zoneClassDensity": {
+        "SFR1": 4, "SFR2": 8, "SFR3": 14,
+        "MFR1": 27, "MFR2": 36, "MFR3": 60, "MFR4": 80, "MFR5": 120, "MFR6": 218, "MFR7": 450,
+        "MUR1": 26, "MUR1z": 26, "MUR2": 34, "MUR2z": 34, "MUR3": 57, "MUR3z": 57, "MUR4": 76, "MUR4z": 76,
+        "MUR5": 114, "MUR5z": 114, "MUR6": 207, "MUR6z": 207, "MUR7": 428, "MUR7z": 428
+      }
+    },
+    "dataSources": {
+      "taxlotServiceUrl": "https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Taxlots_(Public)/FeatureServer/3/query",
+      "zoningServiceUrl": "https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Zoning/FeatureServer/1/query",
+      "portlandZoningServiceUrl": "https://www.portlandmaps.com/od/rest/services/COP_OpenData_ZoningCode/MapServer/16/query",
+      "assessorServiceUrl": "https://www.portlandmaps.com/arcgis/rest/services/Public/Taxlots/MapServer/0/query",
+      "bboxSource": "cityBoundary",
+      "cityBoundaryName": "Portland"
+    }
+  },
+  "salem": {
+    "label": "Salem",
+    "center": [44.9429, -123.0351],
+    "zoom": 12,
+    "hasExistingUnits": false,
+    "hasMaxDensityFormulas": false,
+    "zoningPolygonLabel": "Salem zoning polygon",
+    "sidebarNote": "Only taxlots/areas that are zoned for residential use are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden. Salem's own zoning-code density formulas have not been researched yet, so zoned maximum density is not yet available here, and Marion County's parcel data has no existing-housing-unit-count field at all, so existing density is not available either.",
+    "citations": {
+      "zoningLayer": "https://data.cityofsalem.net/datasets/1860bc471d8e4d57ae5959c7bace4556_0/about",
+      "parcelsLayer": "https://gis-marioncounty.opendata.arcgis.com/datasets/MarionCounty::marion-county-parcels"
+    },
+    "legendSources": [
+      ["City of Salem \"Zoning Designation\" Feature Layer", "zoningLayer"],
+      ["Marion County \"Parcels\" Feature Layer", "parcelsLayer"]
+    ],
+    "formulas": {
+      "residentialZones": ["RS", "RA", "RM1", "RM2", "RM3", "MU-I", "MU-II", "MU-III", "MU-R", "ESMU", "FMU", "NH", "SWMU", "WSCB", "CB"]
+    },
+    "dataSources": {
+      "taxlotServiceUrl": "https://services1.arcgis.com/sYGZnQPdJ0azuLyn/arcgis/rest/services/Parcels_OpenDataView/FeatureServer/0/query",
+      "zoningServiceUrl": "https://services.arcgis.com/kIA6yS9KDGqZL7U3/arcgis/rest/services/Zoning_Designation/FeatureServer/0/query",
+      "cityFilterField": "CITY",
+      "cityFilterValue": "SALEM",
+      "bboxSource": "zoningExtent"
+    }
+  }
+}

@@ -89,14 +89,17 @@
     <div id="sidebar">
         <h1 id="app-title"></h1>
 
+        <h2>City</h2>
+        <select id="city-select"></select>
+
         <h2>View by</h2>
         <label><input type="radio" name="view-mode" value="taxlot" checked> Taxlot</label>
-        <label><input type="radio" name="view-mode" value="zoning"> Portland zoning polygon</label>
+        <label><input type="radio" name="view-mode" value="zoning"> <span id="zoning-mode-label"></span></label>
         <label><input type="radio" name="view-mode" value="block"> Census block</label>
         <label><input type="radio" name="view-mode" value="tract"> Census tract</label>
 
         <h2>Color by</h2>
-        <label><input type="radio" name="color-by" value="existing" checked> <button type="button" class="density-link" id="existing-density-info-btn"></button></label>
+        <label><input type="radio" name="color-by" value="existing" checked id="existing-color-by-radio"> <button type="button" class="density-link" id="existing-density-info-btn"></button></label>
         <label><input type="radio" name="color-by" value="maximum"> <button type="button" class="density-link" id="max-density-info-btn"></button></label>
 
         <label><input type="checkbox" id="show-outlines-toggle"> Show taxlot/area outlines</label>
@@ -109,7 +112,7 @@
         <button type="button" id="download-btn">Download map image (uses current view)</button>
         <hr>
 
-        <p>Only taxlots/areas that are zoned for residential use or have existing housing units are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden.</p>
+        <p id="sidebar-note"></p>
 
         <div id="sidebar-footer"><a href="https://github.com/jacksoneschroeder/portland-housing-density-mapper" target="_blank" rel="noopener">View source code on GitHub</a></div>
     </div>
@@ -150,10 +153,13 @@
     <div class="modal-box">
         <div class="modal-header"><h3 id="existing-density-modal-title"></h3><button type="button" class="modal-close" id="existing-density-close-btn">&times;</button></div>
 
-        <p>Existing unit counts for each taxlot come from Metro's regional <a href="#" id="housing-link" target="_blank" rel="noopener">Housing</a> inventory, while taxlot/area acreages come from Metro's regional <a href="#" id="taxlots-public-link" target="_blank" rel="noopener">Taxlots (Public)</a> layer.</p>
-        
-        <h4 id="existing-density-area-mean-heading"></h4>
-        <p id="existing-density-area-mean-text"></p>
+        <div id="existing-density-portland-content">
+            <p>Existing unit counts for each taxlot come from Metro's regional <a href="#" id="housing-link" target="_blank" rel="noopener">Housing</a> inventory, while taxlot/area acreages come from Metro's regional <a href="#" id="taxlots-public-link" target="_blank" rel="noopener">Taxlots (Public)</a> layer.</p>
+
+            <h4 id="existing-density-area-mean-heading"></h4>
+            <p id="existing-density-area-mean-text"></p>
+        </div>
+        <p id="existing-density-generic-text" class="hidden"></p>
     </div>
 </div>
 
@@ -161,17 +167,20 @@
     <div class="modal-box">
         <div class="modal-header"><h3 id="max-density-modal-title"></h3><button type="button" class="modal-close" id="max-density-close-btn">&times;</button></div>
 
-        <h4><a href="#" id="base-zones-link" target="_blank" rel="noopener">Portland Residential Base Zones</a></h4>
-        <table id="zone-density-table"></table>
-        <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on Portland City Code 33.110.265.G.</p>
-        <p id="far-note"></p>
+        <div id="max-density-portland-content">
+            <h4><a href="#" id="base-zones-link" target="_blank" rel="noopener">Portland Residential Base Zones</a></h4>
+            <table id="zone-density-table"></table>
+            <p>Cottage clusters are estimated to be at least 1,000 sq ft per cottage, based on Portland City Code 33.110.265.G.</p>
+            <p id="far-note"></p>
 
-        <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
-        <p id="metro-fallback-text"></p>
-        <table id="metro-density-table"></table>
+            <h4><a href="#" id="metro-zone-class-link" target="_blank" rel="noopener">Metro's Zoning Generalized Classifications</a></h4>
+            <p id="metro-fallback-text"></p>
+            <table id="metro-density-table"></table>
 
-        <h4 id="max-density-area-mean-heading"></h4>
-        <p id="max-density-area-mean-text"></p>
+            <h4 id="max-density-area-mean-heading"></h4>
+            <p id="max-density-area-mean-text"></p>
+        </div>
+        <p id="max-density-generic-text" class="hidden"></p>
     </div>
 </div>
 
@@ -179,25 +188,21 @@
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
 <script>
-// Single source of truth for the app name - the browser tab title and the sidebar h1 both read from this instead of each carrying their own copy.
-var APP_TITLE = 'Portland Housing Density Mapper';
-document.title = APP_TITLE;
-document.getElementById('app-title').textContent = APP_TITLE;
-
-// Every citation URL used more than once in this file, defined exactly once here - every place that used to hardcode its own copy (a modal link's href, the RIP-eligible table column, the legend's sources line) now points at one of these instead.
-var CITATIONS = {
-    housing: 'https://rlisdiscovery.oregonmetro.gov/datasets/drcMetro::housing/about',
-    taxlotsPublic: 'https://rlisdiscovery.oregonmetro.gov/datasets/taxlots-public/about',
-    portlandZoningLayer: 'https://gis-pdx.opendata.arcgis.com/datasets/zoning/about',
-    baseZonesCode: 'https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/base-zones#:~:text=documents%20listed%20below.-,Summaries%20of%20development%20standards%20in%20the%20base%20zones,-Please%20note%3A',
-    metroZoneClass: 'https://gis.oregonmetro.gov/rlis-metadata/#/details/416:~:text=48%20regional%20classifications%20into%20which%20the%20zoning%20is%20generalized.',
-    ripCode: 'https://www.portland.gov/sites/default/files/code/110-sd-zone_1.pdf',
-    zoningCode: 'https://www.portland.gov/code/33',
-};
-document.getElementById('housing-link').href = CITATIONS.housing;
-document.getElementById('taxlots-public-link').href = CITATIONS.taxlotsPublic;
-document.getElementById('base-zones-link').href = CITATIONS.baseZonesCode;
-document.getElementById('metro-zone-class-link').href = CITATIONS.metroZoneClass;
+// Multi-city support: runtime-data/cities.json (fetched at the very bottom of this script) carries every
+// per-city concept this app used to hardcode - map center/zoom, sidebar copy, citation URLs, and the density
+// formulas below - keyed by city id ('portland', 'salem', ...). CITY_CONFIGS holds the whole fetched file;
+// activeCityId/formulas/CITATIONS/LEGEND_SOURCES are the "currently displayed" slice of it, reassigned by
+// switchCity() every time the city dropdown changes (see applyCityChrome/switchCity/loadCity near the bottom).
+// Same file both this script and scripts/build_aggregation_layers.py read, preserving the project's existing
+// single-source-of-truth discipline (see this project's own history for the real JS/Python-drift bug that
+// caused) - it replaces the old Portland-only runtime-data/density_formulas.json entirely.
+var CITY_ORDER = ['portland', 'salem'];
+var CITY_CONFIGS = null;
+var activeCityId = 'portland';
+var APP_TITLE = 'Portland Housing Density Mapper'; // Real value set by applyCityChrome once cities.json loads; this default just matches the bootstrap <title> tag until then.
+var CITATIONS = {};
+var DATA_SOURCES_LABEL = 'Data sources: ';
+var LEGEND_SOURCES = [];
 
 // Every font size in this app, including the canvas-drawn download image below, which reads these same computed values back instead of keeping its own separate numbers.
 var ROOT_STYLE = getComputedStyle(document.documentElement);
@@ -232,18 +237,9 @@ function updateScaleBar() {
 }
 map.on('zoomend moveend', updateScaleBar);
 
-// Every data source this tool draws from, listed here once and read by both the on-screen sources line (with real links) and the exported image (plain text, since a PNG can't carry a hyperlink) - see drawLegendOnImage below.
-var DATA_SOURCES_LABEL = 'Data sources: ';
-var LEGEND_SOURCES = [
-    ['Metro "Housing" Feature Layer', CITATIONS.housing],
-    ['Metro "Taxlots (Public)" Feature Layer', CITATIONS.taxlotsPublic],
-    ['Portland "Zoning" Feature Layer', CITATIONS.portlandZoningLayer],
-    ['Metro Zoning Generalized Classifications', CITATIONS.metroZoneClass],
-    ['Portland City Code Ch. 33', CITATIONS.zoningCode],
-];
-document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
-    return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
-}).join(', ');
+// Every data source the active city draws from - LEGEND_SOURCES/sources-bar are (re)built by applyCityChrome
+// below from CITY_CONFIGS[activeCityId].legendSources, read by both the on-screen sources line (with real
+// links) and the exported image (plain text, since a PNG can't carry a hyperlink) - see drawSourcesBar below.
 
 function esriRingsToLatLngRings(rings) {
     return rings.map(function(ring) { return ring.map(function(pt) { return [pt[1], pt[0]]; }); });
@@ -277,12 +273,20 @@ function fetchAndDecompress(url) {
     });
 }
 
-// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP/CR/RF's real flat city caps > a real 0 for zones where Household Living is prohibited or all-but-prohibited (EG1/EG2/CI1) > the real RIP formula (R-zones) > for zones with a real FAR limit but no maximum-density standard at all (RM1-4/RX, CM1-3/CE/CX, EX, CI2/IR), whichever is lower of a FAR-derived unit ceiling or Metro's own generalized zoneClass estimate > Metro's zoneClass estimate alone for any other known zone > existing units as a last resort.
-// Every constant these use comes from runtime-data/density_formulas.json (fetched in initialDataReady below) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
-var formulas = null; // populated once initialDataReady resolves
+// Max density estimate, taxlot mode only (aggregate modes carry a precomputed area-weighted mean from scripts/build_aggregation_layers.py): RMP/CR/RF's real flat city caps > a real 0 for zones where Household Living is prohibited or all-but-prohibited (EG1/EG2/CI1) > the real RIP formula (R-zones) > for zones with a real FAR limit but no maximum-density standard at all (RM1-4/RX, CM1-3/CE/CX, EX, CI2/IR), whichever is lower of a FAR-derived unit ceiling or Metro's own generalized zoneClass estimate > Metro's zoneClass estimate alone for any other known zone > existing units as a last resort. Portland-only - see MAX_DENSITY_ENGINES below for how a city with no researched formulas (Salem, currently) is handled instead.
+// Every constant these use comes from CITY_CONFIGS[activeCityId].formulas (see the cities.json comment above) - the same file scripts/build_aggregation_layers.py reads, so the taxlot popup and the aggregate datasets can never silently drift apart the way they once did (see this project's own history for the real bug that caused).
+var formulas = null; // set by switchCity(), to CITY_CONFIGS[activeCityId].formulas
 
 function isResidentialMetroZone(zoneClass) {
     return new RegExp('^(' + formulas.residentialMetroPrefixes.join('|') + ')').test(zoneClass || '');
+}
+// Salem's zoneCode (from Marion County's parcel data) is sometimes multiple semicolon-separated codes on one
+// split parcel (e.g. "RM2; RS") - residential if ANY of them is on the allowlist, not just the first.
+// formulas.residentialZones is a first-pass, unverified list (flagged in cities.json) - not yet confirmed
+// against Salem's own UDC the way Portland's own residentialPortlandZones list has been.
+function isResidentialSalemZone(zoneCode) {
+    if (!zoneCode) return false;
+    return zoneCode.split(';').some(function(z) { return formulas.residentialZones.indexOf(z.trim()) !== -1; });
 }
 function ripMaximumUnits(zone, sqft) {
     if (!(zone in formulas.ripSixplexMinSqft) || sqft == null) return null;
@@ -293,9 +297,9 @@ function ripMaximumUnits(zone, sqft) {
     }
     return best;
 }
-function taxlotMaximumDensity(t) {
+function portlandTaxlotMaximumDensity(t) {
     // Units have to be whole numbers - floor the zone's density-per-acre figure down to a real unit count before dividing back out, the same way scripts/build_aggregation_layers.py's taxlot_maximum_units does, or a small lot's max density comes out overstated (e.g. 80 units/acre on a 0.08-acre lot implies 6.26 units, but only 6 whole units actually fit). Returns the real unit count (`units`) alongside the density, for the info popup's own "Zoned maximum units" row - `null` only in the one branch with no real formula to compute one from. Reports the formula's own number as-is, even when a taxlot's real existing unit count already exceeds it (a legal nonconforming lot) - this is a real zoning-code ceiling, not a claim about what's already built, so it doesn't get bumped up to match existing.
-    var zone = t.portlandZoneClass, v, units;
+    var zone = t.zone, v, units;
     if (zone === 'RMP') { units = Math.floor(formulas.rmpUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (RMP: 1 unit/1,500 sq ft; Portland City Code 33.120.212)' }; }
     if (zone === 'CR') { units = Math.floor(formulas.crUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 2,500 sq ft, "on sites that do not have a Retail Sales And Service or Office use"; Portland City Code 33.130.205)' }; }
     if (zone === 'RF') { units = Math.floor(formulas.rfUnitsPerAcre * t.acres); v = units / t.acres; return { value: v, units: units, label: v.toFixed(1) + ' du/ac (1 unit per 87,120 sq ft; Portland City Code 33.610.100)' }; }
@@ -325,8 +329,22 @@ function taxlotMaximumDensity(t) {
     return { value: t.existingDensity, units: null, label: 'Unknown (zoning class not covered by this data)' };
 }
 
+// Used for any city with no researched zoning-code density formulas yet (Salem, currently - see cities.json's
+// own hasMaxDensityFormulas flag). Deliberately NOT t.existingDensity: that's 0 for every Salem taxlot (no
+// existing-unit data exists for Salem at all - see genericUnknownMaximumDensity's caller in cities.json's
+// hasExistingUnits), and reusing it here would misleadingly read as "zero units allowed" rather than "not
+// yet computed".
+function genericUnknownMaximumDensity(t) {
+    return { value: null, units: null, label: 'Unknown (' + CITY_CONFIGS[activeCityId].label + '\'s zoning-code density formulas have not been researched yet)' };
+}
+var MAX_DENSITY_ENGINES = { portland: portlandTaxlotMaximumDensity, salem: genericUnknownMaximumDensity };
+function taxlotMaximumDensity(t) {
+    return MAX_DENSITY_ENGINES[activeCityId](t);
+}
+
 // Legend: 1 threshold -> 2 color bins, 2 thresholds -> 3 bins.
 var COLORS = ['#c6dbef', '#6baed6', '#08519c'];
+var NO_DATA_COLOR = '#ccc'; // A city with no researched max-density formulas yet (see genericUnknownMaximumDensity) colors every shape this flat gray instead of a misleadingly-precise bucket.
 function getThresholds() {
     var t1 = parseFloat(document.getElementById('threshold-1').value);
     var t2 = parseFloat(document.getElementById('threshold-2').value);
@@ -335,6 +353,7 @@ function getThresholds() {
     return { t1: t1, t2: t2 };
 }
 function colorForDensity(d, th) {
+    if (d == null) return NO_DATA_COLOR;
     if (th.t1 === null) return COLORS[1];
     if (th.t2 === null) return d >= th.t1 ? COLORS[2] : COLORS[0];
     return d >= th.t2 ? COLORS[2] : d >= th.t1 ? COLORS[1] : COLORS[0];
@@ -342,9 +361,13 @@ function colorForDensity(d, th) {
 // Touching ranges like "0.0-20.0, 20.0-60.0" leave it ambiguous which bracket a boundary value itself belongs to; a gapped one like "0-19, 20-59" implies a hole between 19 and 20 that doesn't really exist, since density is continuous, not integer. Splitting the gap at 0.1 - the same precision every density figure in this app is already displayed at (.toFixed(1)) - sidesteps both: adjacent brackets are genuinely adjacent at that precision, so nothing real falls in the "gap" between them.
 function legendEntries() {
     var th = getThresholds();
-    if (th.t1 === null) return [[COLORS[1], 'All taxlots']];
-    if (th.t2 === null) return [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[2], th.t1.toFixed(1) + '+']];
-    return [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[1], th.t1.toFixed(1) + '–' + (th.t2 - 0.1).toFixed(1)], [COLORS[2], th.t2.toFixed(1) + '+']];
+    var entries;
+    if (th.t1 === null) entries = [[COLORS[1], 'All taxlots']];
+    else if (th.t2 === null) entries = [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[2], th.t1.toFixed(1) + '+']];
+    else entries = [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[1], th.t1.toFixed(1) + '–' + (th.t2 - 0.1).toFixed(1)], [COLORS[2], th.t2.toFixed(1) + '+']];
+    // Only the "maximum" color-by mode can ever hit a null density (see genericUnknownMaximumDensity) - "existing" never does, and is disabled outright for a city with no existing-unit data anyway (see applyCityChrome).
+    if (colorBy === 'maximum' && !CITY_CONFIGS[activeCityId].hasMaxDensityFormulas) entries = entries.concat([[NO_DATA_COLOR, 'Unknown']]);
+    return entries;
 }
 var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
 function rebuildLegend() {
@@ -462,27 +485,30 @@ function showInfoBar(center, rings, title, rows) {
 var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Census Block Info', tract: 'Census Tract Info' };
 var ID_LABELS = { zoning: 'Polygon ID', block: 'Census block ID', tract: 'Census tract ID' };
 function infoForShape(mode, t) {
+    var cfg = CITY_CONFIGS[activeCityId];
+    var notAvailable = 'Not available for ' + cfg.label;
     if (mode === 'taxlot') {
         var max = taxlotMaximumDensity(t);
+        var nonconforming = max.units != null && cfg.hasExistingUnits && t.existingUnits > max.units;
         return { title: TITLES.taxlot, rows: [
             ['Address', t.address || 'No address on file'],
-            ['Zoning classification', t.portlandZoneClass || 'N/A (zoning class not covered by this data)'],
+            ['Zoning classification', t.zone || 'N/A (zoning class not covered by this data)'],
             ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
             ['Zoned maximum density', max.label],
             ['Zoned maximum units', max.units == null ? 'Unknown' : max.units.toLocaleString()],
-            ['Existing units', t.existingUnits.toLocaleString()],
-            ['Existing density', t.existingDensity.toFixed(1) + ' du/ac' + (max.units != null && t.existingUnits > max.units ? ' (legally non-conforming)' : '')],
+            ['Existing units', cfg.hasExistingUnits ? t.existingUnits.toLocaleString() : notAvailable],
+            ['Existing density', cfg.hasExistingUnits ? (t.existingDensity.toFixed(1) + ' du/ac' + (nonconforming ? ' (legally non-conforming)' : '')) : notAvailable],
         ] };
     }
-    // Aggregate modes: unit totals and densities are all real area-weighted sums/means computed in build_aggregation_layers.py, not a qualitative label.
+    // Aggregate modes: unit totals and densities are all real area-weighted sums/means computed in build_aggregation_layers.py, not a qualitative label - except maximumDensity/maximumUnits, which are null wholesale for a city with no researched formulas yet (see genericUnknownMaximumDensity/hasMaxDensityFormulas), same as the taxlot-mode max.units check above.
     return { title: TITLES[mode], rows: [
         [ID_LABELS[mode], mode === 'zoning' ? t.polygonId : t.name],
         ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
         ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
-        ['Zoned maximum density (mean)', t.maximumDensity.toFixed(1) + ' du/ac'],
-        ['Zoned maximum units (total)', t.maximumUnits.toLocaleString()],
-        ['Existing units (total)', t.existingUnits.toLocaleString()],
-        ['Existing density (mean)', t.existingDensity.toFixed(1) + ' du/ac'],
+        ['Zoned maximum density (mean)', t.maximumDensity == null ? 'Unknown' : t.maximumDensity.toFixed(1) + ' du/ac'],
+        ['Zoned maximum units (total)', t.maximumUnits == null ? 'Unknown' : t.maximumUnits.toLocaleString()],
+        ['Existing units (total)', cfg.hasExistingUnits ? t.existingUnits.toLocaleString() : notAvailable],
+        ['Existing density (mean)', cfg.hasExistingUnits ? t.existingDensity.toFixed(1) + ' du/ac' : notAvailable],
     ] };
 }
 
@@ -497,14 +523,43 @@ function wireDensityModal(linkId, titleId, overlayId, closeId, title) {
 wireDensityModal('existing-density-info-btn', 'existing-density-modal-title', 'existing-density-modal-overlay', 'existing-density-close-btn', 'Existing density');
 wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density');
 
-// Same area-averaging methodology applies to both metrics, so both modals read from this one definition rather than each keeping its own wording.
+// Same area-averaging methodology applies to both metrics when a city has real numbers to average at all, so
+// both modals read from this one definition rather than each keeping its own wording. Rebuilt by
+// buildDensityInfoModal() below (not set once at load) since the wording names the active city's own zoning
+// mode label ("Portland zoning polygons" / "Salem zoning polygons").
 var AREA_MEANS_HEADING = 'Area means';
-var AREA_MEANS_TEXT = 'Area means (that is, for Portland zoning polygons, census blocks, and census tracts) are calculated by summing the value of all residential taxlots within the area and dividing by the total acreage.';
-['existing-density', 'max-density'].forEach(function(prefix) {
-    document.getElementById(prefix + '-area-mean-heading').textContent = AREA_MEANS_HEADING;
-    document.getElementById(prefix + '-area-mean-text').textContent = AREA_MEANS_TEXT;
-});
+function areaMeansText(cfg) {
+    return 'Area means (that is, for ' + cfg.zoningPolygonLabel + 's, census blocks, and census tracts) are calculated by summing the value of all residential taxlots within the area and dividing by the total acreage.';
+}
+// Each modal has a Portland-specific half (the real formula tables - #existing-density-portland-content /
+// #max-density-portland-content) and a generic sibling shown instead for a city with no researched formulas
+// yet (Salem, currently - see cities.json's hasExistingUnits/hasMaxDensityFormulas flags). Toggled here
+// rather than left to CSS, since which half is even relevant depends on the active city, not a fixed layout.
 function buildDensityInfoModal() {
+    var cfg = CITY_CONFIGS[activeCityId];
+
+    document.getElementById('existing-density-portland-content').classList.toggle('hidden', !cfg.hasExistingUnits);
+    document.getElementById('existing-density-generic-text').classList.toggle('hidden', cfg.hasExistingUnits);
+    if (cfg.hasExistingUnits) {
+        document.getElementById('housing-link').href = cfg.citations.housing;
+        document.getElementById('taxlots-public-link').href = cfg.citations.taxlotsPublic;
+        document.getElementById('existing-density-area-mean-heading').textContent = AREA_MEANS_HEADING;
+        document.getElementById('existing-density-area-mean-text').textContent = areaMeansText(cfg);
+    } else {
+        document.getElementById('existing-density-generic-text').textContent = 'Existing housing-unit counts are not available for ' + cfg.label + ' in this tool\'s current data sources.';
+    }
+
+    document.getElementById('max-density-portland-content').classList.toggle('hidden', !cfg.hasMaxDensityFormulas);
+    document.getElementById('max-density-generic-text').classList.toggle('hidden', cfg.hasMaxDensityFormulas);
+    if (!cfg.hasMaxDensityFormulas) {
+        document.getElementById('max-density-generic-text').textContent = cfg.label + '\'s own zoning-code density formulas have not been researched yet, so zoned maximum density is not yet available here.';
+        return; // Nothing below this builds anything Salem (or any other no-formula city) actually shows.
+    }
+    document.getElementById('max-density-area-mean-heading').textContent = AREA_MEANS_HEADING;
+    document.getElementById('max-density-area-mean-text').textContent = areaMeansText(cfg);
+    document.getElementById('base-zones-link').href = cfg.citations.baseZonesCode;
+    document.getElementById('metro-zone-class-link').href = cfg.citations.metroZoneClass;
+
     // Real citation for the RIP-eligible column: Portland City Code 33.110.265 (Residential infill options) - Table 110-7 for the duplex/triplex/affordable-sixplex thresholds, Subsection G.1.a for cottage cluster site sizes. Directly confirmed against the PDF, not guessed. Same CITATIONS.ripCode used for the Cottage Cluster note and the legend's sources line, above.
     var rows = Object.keys(formulas.ripSixplexMinSqft).map(function(zone) {
         var six = formulas.ripSixplexMinSqft[zone], ccMin = formulas.cottageClusterMinSqft[zone];
@@ -627,50 +682,130 @@ map.on('click', function(e) {
     showInfoBar(L.latLng(nearest.lat, nearest.lng), nearest.rings, info.title, info.rows);
 });
 
-// density_formulas.json and the 3 aggregate layers are all small - fine to fetch directly on the main thread, together. The taxlot Worker below (which does need formulas, for its own live per-taxlot calculation) awaits this same promise before touching any of it.
-var initialDataReady = Promise.all([
-    fetch('runtime-data/density_formulas.json').then(function(r) { return r.json(); }),
-    fetchAndDecompress('runtime-data/zoning_polygons.json.gz').catch(function() { return []; }),
-    fetchAndDecompress('runtime-data/census_tracts.json.gz').catch(function() { return []; }),
-    fetchAndDecompress('runtime-data/census_blocks.json.gz').catch(function() { return []; }),
-]).then(function(results) {
-    formulas = results[0];
-    function withCentroid(list) {
-        return list.map(function(z) { return Object.assign(polygonCentroid(z.rings), z); });
-    }
-    datasets.zoning = withCentroid(results[1]);
-    datasets.tract = withCentroid(results[2]);
-    datasets.block = withCentroid(results[3]);
-    buildDensityInfoModal();
-    redrawShapes();
-});
+// Per-city taxlot filtering/normalization - each city's raw taxlot dataset (from scripts/build_taxlot_dataset.py)
+// carries different fields, since each city's own data source does (Portland/Metro's zoneClass+portlandZoneClass
+// vs Salem/Marion County's single zoneCode - see cities.json's dataSources for where each comes from). Both
+// normalize down to the same shape redrawShapes/infoForShape/taxlotMaximumDensity already read: {lat, lng,
+// rings, address, zone, acres, existingUnits, existingDensity}, plus whatever extra fields that city's own
+// MAX_DENSITY_ENGINES entry needs (zoneClass/sqft for Portland's real formula).
+var TAXLOT_FILTERS = {
+    portland: function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length && isResidentialMetroZone(t.zoneClass); },
+    salem: function(t) { return t.acres > 0 && t.rings && t.rings.length && isResidentialSalemZone(t.zoneCode); },
+};
+var TAXLOT_NORMALIZERS = {
+    portland: function(t) { return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, zone: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingUnits: t.existingUnits || 0, existingDensity: (t.existingUnits || 0) / t.acres }; },
+    // No existingUnits field exists in Salem's own parcel data at all (confirmed, not just unfetched - see
+    // cities.json's hasExistingUnits: false) - fixed at 0 here only because infoForShape/densityForColor never
+    // actually display it for a !hasExistingUnits city (they show "Not available" instead), not because 0 is
+    // a real answer.
+    salem: function(t) { return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, zone: t.zoneCode, acres: t.acres, existingUnits: 0, existingDensity: 0 }; },
+};
 
-// The taxlot dataset is much bigger (100MB+ decompressed), so it runs in the same Web Worker index.html uses, off the main thread.
+// Applies everything about the active city that isn't the map data itself (that's loadCity, below): title,
+// sidebar copy, citations/sources bar, map framing, and disabling the "existing" color-by option for a city
+// with no existing-unit data (forcing back to "maximum" if it was selected - there's nothing real to color by
+// otherwise).
+function applyCityChrome(cfg) {
+    APP_TITLE = cfg.label + ' Housing Density Mapper';
+    document.title = APP_TITLE;
+    document.getElementById('app-title').textContent = APP_TITLE;
+    document.getElementById('zoning-mode-label').textContent = cfg.zoningPolygonLabel;
+    document.getElementById('sidebar-note').textContent = cfg.sidebarNote;
+
+    CITATIONS = cfg.citations;
+    LEGEND_SOURCES = cfg.legendSources.map(function(s) { return [s[0], CITATIONS[s[1]]]; });
+    document.getElementById('sources-bar').innerHTML = DATA_SOURCES_LABEL + LEGEND_SOURCES.map(function(s) {
+        return '<a href="' + s[1] + '" target="_blank" rel="noopener">' + s[0] + '</a>';
+    }).join(', ');
+
+    var existingRadio = document.getElementById('existing-color-by-radio');
+    existingRadio.disabled = !cfg.hasExistingUnits;
+    existingRadio.closest('label').title = cfg.hasExistingUnits ? '' : 'Existing unit counts are not available for ' + cfg.label + '.';
+    if (!cfg.hasExistingUnits && colorBy === 'existing') {
+        colorBy = 'maximum';
+        document.querySelector('input[name=color-by][value=maximum]').checked = true;
+    }
+
+    map.setView(cfg.center, cfg.zoom);
+}
+
+// (Re)loads the 3 small precomputed aggregate layers plus the (much bigger) taxlot dataset for one city,
+// replacing whatever's currently in `datasets`. Guarded against a stale in-flight load finishing after the
+// user has already switched to a different city again (loadCityId !== activeCityId) - without this, a slow
+// Portland load landing after a quick switch to Salem would silently overwrite Salem's just-loaded data with
+// Portland's.
 var progressEl = document.getElementById('load-progress');
-var worker = new Worker('workers/taxlot-parse-worker.js');
-worker.onmessage = function(e) {
-    var msg = e.data;
-    if (msg.type === 'progress') {
-        progressEl.textContent = msg.fraction == null ? 'Loading taxlots…' : msg.fraction >= 1 ? 'Loading taxlots…processing' : 'Loading taxlots…' + Math.round(msg.fraction * 100) + '%';
-    } else if (msg.type === 'done') {
-        progressEl.textContent = 'Filtering to Portland…';
-        initialDataReady.then(function() {
+var activeTaxlotWorker = null;
+function loadCity(cityId) {
+    var loadCityId = cityId;
+
+    progressEl.textContent = 'Loading taxlots…';
+    progressEl.classList.remove('hidden');
+
+    Promise.all([
+        fetchAndDecompress('runtime-data/' + cityId + '_zoning_polygons.json.gz').catch(function() { return []; }),
+        fetchAndDecompress('runtime-data/' + cityId + '_census_tracts.json.gz').catch(function() { return []; }),
+        fetchAndDecompress('runtime-data/' + cityId + '_census_blocks.json.gz').catch(function() { return []; }),
+    ]).then(function(results) {
+        if (loadCityId !== activeCityId) return;
+        function withCentroid(list) {
+            return list.map(function(z) { return Object.assign(polygonCentroid(z.rings), z); });
+        }
+        datasets.zoning = withCentroid(results[0]);
+        datasets.tract = withCentroid(results[1]);
+        datasets.block = withCentroid(results[2]);
+        redrawShapes();
+    });
+
+    // The taxlot dataset is much bigger (100MB+ decompressed for Portland), so it runs in its own Web Worker,
+    // off the main thread. A prior city's still-running worker is terminated outright rather than left to
+    // finish - its result would just be discarded by the loadCityId check below anyway, so there's no reason
+    // to let it keep using bandwidth/CPU in the background.
+    if (activeTaxlotWorker) activeTaxlotWorker.terminate();
+    var worker = new Worker('workers/taxlot-parse-worker.js');
+    activeTaxlotWorker = worker;
+    worker.onmessage = function(e) {
+        if (loadCityId !== activeCityId) return;
+        var msg = e.data;
+        if (msg.type === 'progress') {
+            progressEl.textContent = msg.fraction == null ? 'Loading taxlots…' : msg.fraction >= 1 ? 'Loading taxlots…processing' : 'Loading taxlots…' + Math.round(msg.fraction * 100) + '%';
+        } else if (msg.type === 'done') {
+            progressEl.textContent = 'Filtering…';
             setTimeout(function() {
-                datasets.taxlot = msg.data.filter(function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length && isResidentialMetroZone(t.zoneClass); })
-                    .map(function(t) {
-                        return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, portlandZoneClass: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingUnits: t.existingUnits || 0, existingDensity: (t.existingUnits || 0) / t.acres };
-                    });
+                if (loadCityId !== activeCityId) return;
+                datasets.taxlot = msg.data.filter(TAXLOT_FILTERS[cityId]).map(TAXLOT_NORMALIZERS[cityId]);
                 progressEl.classList.add('hidden');
                 redrawShapes();
                 worker.terminate();
             }, 0);
-        });
-    } else {
-        progressEl.textContent = 'Could not load taxlot data.';
-        worker.terminate();
-    }
-};
-worker.postMessage({ url: '/taxlot-data', fallbackUrl: '/runtime-data/taxlot_density_data.json.gz' });
+        } else {
+            progressEl.textContent = 'Could not load taxlot data.';
+            worker.terminate();
+        }
+    };
+    worker.postMessage({ url: '/taxlot-data/' + cityId, fallbackUrl: '/runtime-data/' + cityId + '_taxlot_density_data.json.gz' });
+}
+
+function switchCity(cityId) {
+    activeCityId = cityId;
+    formulas = CITY_CONFIGS[cityId].formulas;
+    document.getElementById('city-select').value = cityId;
+    applyCityChrome(CITY_CONFIGS[cityId]);
+    closeInfoBar();
+    datasets = { taxlot: [], zoning: [], block: [], tract: [] };
+    buildDensityInfoModal();
+    rebuildLegend();
+    redrawShapes();
+    loadCity(cityId);
+}
+
+fetch('runtime-data/cities.json').then(function(r) { return r.json(); }).then(function(cfg) {
+    CITY_CONFIGS = cfg;
+    var select = document.getElementById('city-select');
+    select.innerHTML = CITY_ORDER.map(function(id) { return '<option value="' + id + '">' + CITY_CONFIGS[id].label + '</option>'; }).join('');
+    select.onchange = function() { switchCity(this.value); };
+    switchCity('portland');
+});
 
 // Download image: composites every canvas inside #map (the MapLibre basemap + the Leaflet shapes canvas, both real <canvas> elements) at their current on-screen position, then bakes the whole legend box on top (north arrow, scale bar, color key, and sources) so all of it survives outside the app - the legend is drawn manually here rather than screenshotted, since it's not a <canvas> itself.
 function wrapLines(ctx, text, maxWidth) {

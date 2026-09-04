@@ -14,7 +14,7 @@
 # be joined to any specific taxlot.
 #
 # Run with: python3 scripts/fetch_taxlot_housing_units.py
-# Reads/writes: runtime-data/taxlot_density_data.json (+ .gz)
+# Reads/writes: runtime-data/portland_taxlot_density_data.json (+ .gz) - Portland only, see build_taxlot_dataset.py's load_taxlot_dataset()/write_taxlot_dataset() own comment on why Salem has no equivalent enrichment step.
 # Must run AFTER fetch_taxlot_addresses.py has finished writing its own output - both scripts read/rewrite
 # the same full dataset file, so running them concurrently would race and one run's output would clobber
 # the other's.
@@ -26,7 +26,7 @@ import time
 from build_taxlot_dataset import RUNTIME_DATA_DIR, NON_ESSENTIAL_DATA_DIR, post_query, load_taxlot_dataset, write_taxlot_dataset
 
 HOUSING_URL = 'https://services2.arcgis.com/McQ0OlIABe29rJJy/arcgis/rest/services/Housing/FeatureServer/11/query'
-TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'taxlot_density_data.json')
+TAXLOT_DATASET_PATH = os.path.join(RUNTIME_DATA_DIR, 'portland_taxlot_density_data.json')
 CHECKPOINT_PATH = os.path.join(NON_ESSENTIAL_DATA_DIR, 'taxlot_housing_units_checkpoint.json')
 # Same batch size/reasoning as fetch_taxlot_addresses.py's own BATCH_SIZE - a live sample query found only
 # ~1.4% of TLIDs have more than one Housing record, so 300 TLIDs/request stays comfortably under this

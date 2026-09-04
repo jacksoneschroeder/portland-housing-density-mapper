@@ -7,7 +7,7 @@
   },
   "assets": {
     "directory": "./dist_assets",
-    "run_worker_first": ["/taxlot-data"]
+    "run_worker_first": ["/taxlot-data/*"]
   },
   // Same R2 bucket the TOD-PITCH repo's own Worker binds to - shared, read-only from here, not duplicated.
   // R2 buckets can be bound to more than one Worker, so there's no need for a second bucket or a data copy.
