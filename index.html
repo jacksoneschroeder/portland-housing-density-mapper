@@ -36,7 +36,7 @@
         /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
         /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
-        #reset-view-btn, #load-progress, #zoom-hint, #zone-density-gate-banner {
+        #reset-view-btn, #load-progress, #zoom-hint {
             background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px;
         }
@@ -54,7 +54,6 @@
         #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px; color: #888; font-size: var(--font-small); pointer-events: auto; }
         #legend a, #sources-bar a { color: #06c; }
         #zoom-hint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); }
-        #zone-density-gate-banner { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); cursor: pointer; text-decoration: underline; z-index: 501; }
         .hidden { display: none; }
 
         /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
@@ -134,7 +133,6 @@
             </div>
         </div>
         <div id="zoom-hint">Zoom in to see taxlots</div>
-        <div id="zone-density-gate-banner" class="hidden">To view densities, please enter an assumption for every zoning classification</div>
         <div id="top-right-controls">
             <button type="button" id="reset-view-btn" disabled>Reset map extent</button>
             <div id="load-progress">Loading taxlots&hellip;</div>
@@ -593,16 +591,30 @@ function infoForShape(mode, t) {
 }
 
 // Density info modals, one per "Color by" option - each pair's title is set once, here, and read by both the sidebar link and its own modal header, so the two can never say something different from each other. Table content is still built directly from the same formulas object every density number on the map comes from (see buildDensityInfoModal below), so the reference tables can't drift from the real calculation either.
-function wireDensityModal(linkId, titleId, overlayId, closeId, title) {
+function wireDensityModal(linkId, titleId, overlayId, closeId, title, onClose) {
     document.getElementById(linkId).textContent = title;
     document.getElementById(titleId).textContent = title;
     var overlay = document.getElementById(overlayId);
     document.getElementById(linkId).onclick = function() { overlay.classList.add('visible'); };
-    document.getElementById(closeId).onclick = function() { overlay.classList.remove('visible'); };
+    document.getElementById(closeId).onclick = function() { overlay.classList.remove('visible'); if (onClose) onClose(); };
 }
 wireDensityModal('existing-density-info-btn', 'existing-density-modal-title', 'existing-density-modal-overlay', 'existing-density-close-btn', 'Existing density');
-wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density');
-document.getElementById('zone-density-gate-banner').onclick = function() { document.getElementById('max-density-info-btn').click(); };
+// The zone-density override table's own inputs (see buildZoneDensityOverrideTable below) only save to
+// ZONE_DENSITY_OVERRIDES/localStorage as you type - the map itself isn't even visible behind this modal while
+// it's open, so there's no reason to redo the (relatively expensive, full-taxlot-spatial-join) aggregate
+// recompute on every keystroke or spinner click. Closing the modal is what actually triggers it instead, once,
+// covered by a brief "Recalculating…" indicator in the same top-right box loadCity's own loading state uses.
+function closeAndRecomputeIfOverridable() {
+    if (!CITY_CONFIGS[activeCityId].formulas.residentialZones) return; // Not an overridable city - nothing changed to recompute
+    progressEl.textContent = 'Recalculating…';
+    progressEl.classList.remove('hidden');
+    setTimeout(function() {
+        recomputeOverrideAggregates();
+        redrawShapes();
+        progressEl.classList.add('hidden');
+    }, 0);
+}
+wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density', closeAndRecomputeIfOverridable);
 
 // Same area-averaging methodology applies to both metrics when a city has real numbers to average at all, so
 // both modals read from this one definition rather than each keeping its own wording. Rebuilt by
@@ -635,8 +647,7 @@ function buildZoneDensityOverrideTable(cfg) {
             if (val > 0) overrides[this.dataset.zone] = val;
             else delete overrides[this.dataset.zone];
             saveZoneDensityOverrides(activeCityId);
-            recomputeOverrideAggregates(); // No-op until AGGREGATE_ASSIGNMENTS exists (still loading) - loadCity's own maybeBuildAggregateAssignments call picks up whatever's in `overrides` once it does.
-            redrawShapes();
+            // Recompute/redraw are deferred to modal close (see closeAndRecomputeIfOverridable) - not done here.
         };
     });
 }
@@ -662,7 +673,7 @@ function buildDensityInfoModal() {
     document.getElementById('max-density-generic-text').classList.toggle('hidden', cfg.hasMaxDensityFormulas || overridable);
     document.getElementById('max-density-salem-content').classList.toggle('hidden', !overridable);
     if (overridable) {
-        document.getElementById('max-density-salem-intro').innerHTML = cfg.label + '\'s own zoning-code density formulas have not been researched in this tool yet. If you know ' + cfg.label + '\'s zoning code, enter your own maximum units/acre estimate per zone below - it colors taxlots and shows up in taxlot popups immediately. Saved in this browser only; nothing is sent anywhere.';
+        document.getElementById('max-density-salem-intro').innerHTML = cfg.label + '\'s own zoning-code density formulas have not been researched in this tool yet. If you know ' + cfg.label + '\'s zoning code, enter your own maximum units/acre estimate per zone below - closing this window applies it to the map and taxlot popups. Zones left blank stay "Unknown". Saved in this browser only; nothing is sent anywhere.';
         buildZoneDensityOverrideTable(cfg);
         return;
     }
@@ -720,28 +731,8 @@ var datasets = { taxlot: [], zoning: [], block: [], tract: [] };
 var shapesRenderer = L.canvas({ padding: 0.5 });
 var shapesLayer = L.layerGroup().addTo(map);
 
-// A city with the zone-density override table (see cfg.formulas.residentialZones/overridableZoneMaximumDensity
-// above) is entirely honest-"Unknown" until every one of its residential zones has an assumption entered - a
-// map that's mostly gray with a few colored zones sprinkled in reads as "this is probably still accurate", not
-// "this is incomplete", which is the wrong impression to leave with someone who didn't build the tool. So the
-// whole map (every view mode, not just "maximum" coloring - there's nothing else worth showing for a city like
-// this anyway, since "existing" is disabled outright for the same reason) stays blank with a banner pointing at
-// the modal until the set is complete, rather than degrading gradually as zones get filled in one at a time.
-function zoneOverridesComplete() {
-    var zones = CITY_CONFIGS[activeCityId].formulas.residentialZones;
-    if (!zones) return true; // Not an overridable city (Portland) - nothing to gate on
-    var overrides = ZONE_DENSITY_OVERRIDES[activeCityId] || {};
-    return zones.every(function(zone) { return overrides[zone] > 0; });
-}
 function redrawShapes() {
     shapesLayer.clearLayers();
-    var gateBanner = document.getElementById('zone-density-gate-banner');
-    if (!zoneOverridesComplete()) {
-        gateBanner.classList.remove('hidden');
-        document.getElementById('zoom-hint').classList.add('hidden');
-        return;
-    }
-    gateBanner.classList.add('hidden');
     if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList[viewMode === 'taxlot' && map.getZoom() >= 10 ? 'remove' : 'add']('hidden'); return; }
     document.getElementById('zoom-hint').classList.add('hidden');
 
@@ -914,7 +905,6 @@ function findNearestShape(mode, lat, lng) {
 }
 
 map.on('click', function(e) {
-    if (!zoneOverridesComplete()) return; // Nothing's rendered while gated (see redrawShapes) - nothing to find either
     if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) return; // Shapes aren't even rendered below this zoom - nothing to find
     var nearest = findNearestShape(viewMode, e.latlng.lat, e.latlng.lng);
     if (!nearest) return; // Genuinely empty space - leave whatever's currently open (if anything) as-is
