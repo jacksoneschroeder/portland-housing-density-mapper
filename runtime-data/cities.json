@@ -6,7 +6,7 @@
     "hasExistingUnits": true,
     "hasMaxDensityFormulas": true,
     "zoningPolygonLabel": "Portland zoning polygon",
-    "sidebarNote": "Only taxlots/areas that are zoned for residential use or have existing housing units are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden.",
+    "sidebarNote": "Every taxlot is shown and clickable, but zoned maximum density only applies to taxlots zoned for residential use - others show \"N/A\". Zoning polygons and other areas are still limited to ones zoned for residential use or with existing housing units.",
     "citations": {
       "housing": "https://rlisdiscovery.oregonmetro.gov/datasets/drcMetro::housing/about",
       "taxlotsPublic": "https://rlisdiscovery.oregonmetro.gov/datasets/taxlots-public/about",
@@ -78,7 +78,7 @@
     "hasExistingUnits": false,
     "hasMaxDensityFormulas": false,
     "zoningPolygonLabel": "Salem zoning polygon",
-    "sidebarNote": "Only taxlots/areas that are zoned for residential use are shown. All other taxlots/areas (that is, most commercial, industrial, and other non-residential taxlots/areas) are hidden. Salem's own zoning-code density formulas have not been researched yet, so zoned maximum density is not yet available here, and Marion County's parcel data has no existing-housing-unit-count field at all, so existing density is not available either.",
+    "sidebarNote": "Every taxlot is shown and clickable, but zoned maximum density only applies to taxlots zoned for residential use - others show \"N/A\". Zoning polygons and other areas are still limited to ones zoned for residential use. Salem's own zoning-code density formulas have not been researched yet, so a maximum density assumption must be entered per zone before zoned maximum density is available here, and Marion County's parcel data has no existing-housing-unit-count field at all, so existing density is not available either.",
     "citations": {
       "zoningLayer": "https://data.cityofsalem.net/datasets/1860bc471d8e4d57ae5959c7bace4556_0/about",
       "parcelsLayer": "https://gis-marioncounty.opendata.arcgis.com/datasets/MarionCounty::marion-county-parcels"

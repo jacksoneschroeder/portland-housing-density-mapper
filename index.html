@@ -36,7 +36,7 @@
         /* Legend box and sources bar are laid out to match the exported image's own layout as closely as possible (see drawLegendBox/drawSourcesBar) - same reason both share the FONT_BODY_PX/FONT_SMALL_PX/CITATIONS/LEGEND_SOURCES constants those functions read. Stacked in one flex column (not each independently bottom-anchored) so the sources bar's own height - which changes as it wraps - never has to be measured or guessed; the legend box just sits in normal flow above whatever height that turns out to be. */
         /* left/right:0 spans the map's full width so the sources bar below can stretch to it, but that leaves a transparent strip to the right of the (much narrower) legend box that would otherwise still swallow clicks/hover meant for the map underneath - pointer-events restricted back to the two boxes that actually have visible content. */
         #legend-stack { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none; }
-        #reset-view-btn, #load-progress, #zoom-hint {
+        #reset-view-btn, #load-progress, #zoom-hint, #zone-density-gate-banner {
             background: #fff; border: 1px solid #ddd; border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: var(--font-body); color: #333; padding: 8px;
         }
@@ -54,6 +54,7 @@
         #sources-bar { align-self: stretch; background: #fff; border-top: 1px solid #ddd; padding: 8px; color: #888; font-size: var(--font-small); pointer-events: auto; }
         #legend a, #sources-bar a { color: #06c; }
         #zoom-hint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); }
+        #zone-density-gate-banner { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); cursor: pointer; text-decoration: underline; z-index: 501; }
         .hidden { display: none; }
 
         /* Popup card, border, and connecting line are all plain SVG (see #info-pointer-svg below), entirely outside Leaflet's own layer system, ported from this project's TOD-PITCH sibling - see the JS's own "Info popup" comment for the full reasoning. Always docks bottom-right at a fixed position (the map pans to stay clear of it instead of it ever moving/flipping) and stays fully transparent - the white rounded-rect people see is #info-pointer-shape's own fill, sized to match this box's real rect. */
@@ -133,6 +134,7 @@
             </div>
         </div>
         <div id="zoom-hint">Zoom in to see taxlots</div>
+        <div id="zone-density-gate-banner" class="hidden">To view densities, please enter an assumption for every zoning classification</div>
         <div id="top-right-controls">
             <button type="button" id="reset-view-btn" disabled>Reset map extent</button>
             <div id="load-progress">Loading taxlots&hellip;</div>
@@ -394,7 +396,16 @@ function overridableZoneMaximumDensity(t) {
     return { value: duac, units: units, label: duac.toLocaleString() + ' du/ac (manual estimate entered for this zone - not from ' + CITY_CONFIGS[activeCityId].label + '\'s own zoning code)' };
 }
 var MAX_DENSITY_ENGINES = { portland: portlandTaxlotMaximumDensity, salem: overridableZoneMaximumDensity };
+// Every taxlot renders and is clickable regardless of its own zoning (a commercial or industrial parcel still
+// shows its real address/zone/area like any other) - only the density figures themselves are zoning-gated,
+// since a maximum-density formula (or a commissioner's override) is only ever a claim about zones that allow
+// housing at all. Checked here, ahead of either engine above, so neither one has to special-case it.
+var IS_RESIDENTIAL_TAXLOT = {
+    portland: function(t) { return isResidentialMetroZone(t.zoneClass); },
+    salem: function(t) { return isResidentialSalemZone(t.zone); },
+};
 function taxlotMaximumDensity(t) {
+    if (!IS_RESIDENTIAL_TAXLOT[activeCityId](t)) return { value: null, units: null, label: 'N/A (not zoned for residential development)' };
     return MAX_DENSITY_ENGINES[activeCityId](t);
 }
 
@@ -421,8 +432,13 @@ function legendEntries() {
     if (th.t1 === null) entries = [[COLORS[1], 'All taxlots']];
     else if (th.t2 === null) entries = [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[2], th.t1.toFixed(1) + '+']];
     else entries = [[COLORS[0], '0.0–' + (th.t1 - 0.1).toFixed(1)], [COLORS[1], th.t1.toFixed(1) + '–' + (th.t2 - 0.1).toFixed(1)], [COLORS[2], th.t2.toFixed(1) + '+']];
-    // Only the "maximum" color-by mode can ever hit a null density (see genericUnknownMaximumDensity) - "existing" never does, and is disabled outright for a city with no existing-unit data anyway (see applyCityChrome).
-    if (colorBy === 'maximum' && !CITY_CONFIGS[activeCityId].hasMaxDensityFormulas) entries = entries.concat([[NO_DATA_COLOR, 'Unknown']]);
+    // Only the "maximum" color-by mode can ever hit a null density - "existing" never does, and is disabled
+    // outright for a city with no existing-unit data anyway (see applyCityChrome). Taxlot mode can hit one for
+    // ANY city, since every non-residential taxlot is now included on the map (see IS_RESIDENTIAL_TAXLOT) but
+    // never gets a density figure; aggregate modes only hit one for a city with no researched formulas yet
+    // (genericUnknownMaximumDensity). "N/A" deliberately covers both reasons at this zoomed-out legend level -
+    // the popup for any individual shape always spells out which one actually applies.
+    if (colorBy === 'maximum' && (viewMode === 'taxlot' || !CITY_CONFIGS[activeCityId].hasMaxDensityFormulas)) entries = entries.concat([[NO_DATA_COLOR, 'N/A']]);
     return entries;
 }
 var colorBy = 'existing'; // set before the first rebuildLegend() call below reads it
@@ -551,7 +567,7 @@ function infoForShape(mode, t) {
             ['Zoning classification', t.zone || 'N/A (zoning class not covered by this data)'],
             ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
             ['Zoned maximum density', max.label],
-            ['Zoned maximum units', max.units == null ? 'Unknown' : max.units.toLocaleString()],
+            ['Zoned maximum units', max.units != null ? max.units.toLocaleString() : (IS_RESIDENTIAL_TAXLOT[activeCityId](t) ? 'Unknown' : 'N/A (not zoned for residential development)')],
             ['Existing units', cfg.hasExistingUnits ? t.existingUnits.toLocaleString() : notAvailable],
             ['Existing density', cfg.hasExistingUnits ? (t.existingDensity.toFixed(1) + ' du/ac' + (nonconforming ? ' (legally non-conforming)' : '')) : notAvailable],
         ] };
@@ -586,6 +602,7 @@ function wireDensityModal(linkId, titleId, overlayId, closeId, title) {
 }
 wireDensityModal('existing-density-info-btn', 'existing-density-modal-title', 'existing-density-modal-overlay', 'existing-density-close-btn', 'Existing density');
 wireDensityModal('max-density-info-btn', 'max-density-modal-title', 'max-density-modal-overlay', 'max-density-close-btn', 'Zoned maximum density');
+document.getElementById('zone-density-gate-banner').onclick = function() { document.getElementById('max-density-info-btn').click(); };
 
 // Same area-averaging methodology applies to both metrics when a city has real numbers to average at all, so
 // both modals read from this one definition rather than each keeping its own wording. Rebuilt by
@@ -599,12 +616,13 @@ function areaMeansText(cfg) {
 // #max-density-portland-content) and a generic sibling shown instead for a city with no researched formulas
 // yet (Salem, currently - see cities.json's hasExistingUnits/hasMaxDensityFormulas flags). Toggled here
 // rather than left to CSS, since which half is even relevant depends on the active city, not a fixed layout.
-// One row per zone in cfg.formulas.residentialZones (the same list that decides which taxlots even show up
-// for this city - see isResidentialSalemZone/TAXLOT_FILTERS above), each with a number input holding that
-// zone's current override, if any. Only taxlot-mode coloring/popups read these live (see
-// overridableZoneMaximumDensity) - the zoning-polygon/tract/block aggregate layers are precomputed server-side
-// in build_aggregation_layers.py and would need a real spatial re-join to reflect a browser-only override, so
-// they stay "Unknown" regardless of what's entered here.
+// One row per zone in cfg.formulas.residentialZones (the same list that decides which of this city's taxlots
+// actually get a density figure at all - see IS_RESIDENTIAL_TAXLOT/isResidentialSalemZone above), each with a
+// number input holding that zone's current override, if any. Taxlot coloring/popups read these live
+// (overridableZoneMaximumDensity); the zoning-polygon/tract/block aggregate layers get recomputed from them too,
+// via a client-side spatial re-join (see buildAggregateAssignments/recomputeOverrideAggregates below) - real
+// per-taxlot geometry isn't in their own precomputed output files, only the final summed numbers are, so that
+// join is redone here rather than reusing anything from build_aggregation_layers.py directly.
 function buildZoneDensityOverrideTable(cfg) {
     var overrides = ZONE_DENSITY_OVERRIDES[activeCityId] || (ZONE_DENSITY_OVERRIDES[activeCityId] = {});
     var table = document.getElementById('salem-zone-density-table');
@@ -702,8 +720,28 @@ var datasets = { taxlot: [], zoning: [], block: [], tract: [] };
 var shapesRenderer = L.canvas({ padding: 0.5 });
 var shapesLayer = L.layerGroup().addTo(map);
 
+// A city with the zone-density override table (see cfg.formulas.residentialZones/overridableZoneMaximumDensity
+// above) is entirely honest-"Unknown" until every one of its residential zones has an assumption entered - a
+// map that's mostly gray with a few colored zones sprinkled in reads as "this is probably still accurate", not
+// "this is incomplete", which is the wrong impression to leave with someone who didn't build the tool. So the
+// whole map (every view mode, not just "maximum" coloring - there's nothing else worth showing for a city like
+// this anyway, since "existing" is disabled outright for the same reason) stays blank with a banner pointing at
+// the modal until the set is complete, rather than degrading gradually as zones get filled in one at a time.
+function zoneOverridesComplete() {
+    var zones = CITY_CONFIGS[activeCityId].formulas.residentialZones;
+    if (!zones) return true; // Not an overridable city (Portland) - nothing to gate on
+    var overrides = ZONE_DENSITY_OVERRIDES[activeCityId] || {};
+    return zones.every(function(zone) { return overrides[zone] > 0; });
+}
 function redrawShapes() {
     shapesLayer.clearLayers();
+    var gateBanner = document.getElementById('zone-density-gate-banner');
+    if (!zoneOverridesComplete()) {
+        gateBanner.classList.remove('hidden');
+        document.getElementById('zoom-hint').classList.add('hidden');
+        return;
+    }
+    gateBanner.classList.add('hidden');
     if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) { document.getElementById('zoom-hint').classList[viewMode === 'taxlot' && map.getZoom() >= 10 ? 'remove' : 'add']('hidden'); return; }
     document.getElementById('zoom-hint').classList.add('hidden');
 
@@ -820,6 +858,7 @@ function recomputeOverrideAggregates() {
         for (var i = 0; i < taxlots.length; i++) {
             var idx = assign[i];
             if (idx < 0) continue;
+            if (!IS_RESIDENTIAL_TAXLOT[activeCityId](taxlots[i])) continue; // Keeps "N of M residential taxlots" (infoForShape's coverage row) honest now that datasets.taxlot also includes non-residential ones
             var s = sums[idx];
             s.total++;
             var max = taxlotMaximumDensity(taxlots[i]);
@@ -875,6 +914,7 @@ function findNearestShape(mode, lat, lng) {
 }
 
 map.on('click', function(e) {
+    if (!zoneOverridesComplete()) return; // Nothing's rendered while gated (see redrawShapes) - nothing to find either
     if (map.getZoom() < ZOOM_FOR_MODE[viewMode]) return; // Shapes aren't even rendered below this zoom - nothing to find
     var nearest = findNearestShape(viewMode, e.latlng.lat, e.latlng.lng);
     if (!nearest) return; // Genuinely empty space - leave whatever's currently open (if anything) as-is
@@ -888,9 +928,12 @@ map.on('click', function(e) {
 // normalize down to the same shape redrawShapes/infoForShape/taxlotMaximumDensity already read: {lat, lng,
 // rings, address, zone, acres, existingUnits, existingDensity}, plus whatever extra fields that city's own
 // MAX_DENSITY_ENGINES entry needs (zoneClass/sqft for Portland's real formula).
+// Every taxlot with real geometry is included, residential or not - see IS_RESIDENTIAL_TAXLOT/
+// taxlotMaximumDensity above for where the residential distinction actually matters (the density figures, not
+// which taxlots show up at all).
 var TAXLOT_FILTERS = {
-    portland: function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length && isResidentialMetroZone(t.zoneClass); },
-    salem: function(t) { return t.acres > 0 && t.rings && t.rings.length && isResidentialSalemZone(t.zoneCode); },
+    portland: function(t) { return t.city === 'PORTLAND' && t.acres > 0 && t.rings && t.rings.length; },
+    salem: function(t) { return t.acres > 0 && t.rings && t.rings.length; },
 };
 var TAXLOT_NORMALIZERS = {
     portland: function(t) { return { lat: t.lat, lng: t.lng, rings: t.rings, address: t.address, zone: t.portlandZoneClass, zoneClass: t.zoneClass, sqft: t.sqft, acres: t.acres, existingUnits: t.existingUnits || 0, existingDensity: (t.existingUnits || 0) / t.acres }; },
