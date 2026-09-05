@@ -391,7 +391,7 @@ function overridableZoneMaximumDensity(t) {
     var duac = (ZONE_DENSITY_OVERRIDES[activeCityId] || {})[t.zone];
     if (!(duac > 0)) return genericUnknownMaximumDensity(t);
     var units = Math.floor(duac * t.acres);
-    return { value: duac, units: units, label: duac.toLocaleString() + ' du/ac (manual estimate entered for zone ' + t.zone + ' - not from ' + CITY_CONFIGS[activeCityId].label + '\'s own zoning code)' };
+    return { value: duac, units: units, label: duac.toLocaleString() + ' du/ac (manual estimate entered for this zone - not from ' + CITY_CONFIGS[activeCityId].label + '\'s own zoning code)' };
 }
 var MAX_DENSITY_ENGINES = { portland: portlandTaxlotMaximumDensity, salem: overridableZoneMaximumDensity };
 function taxlotMaximumDensity(t) {
@@ -542,7 +542,7 @@ var TITLES = { taxlot: 'Taxlot Info', zoning: 'Zoning Polygon Info', block: 'Cen
 var ID_LABELS = { zoning: 'Polygon ID', block: 'Census block ID', tract: 'Census tract ID' };
 function infoForShape(mode, t) {
     var cfg = CITY_CONFIGS[activeCityId];
-    var notAvailable = 'Not available for ' + cfg.label;
+    var notAvailable = 'Not available';
     if (mode === 'taxlot') {
         var max = taxlotMaximumDensity(t);
         var nonconforming = max.units != null && cfg.hasExistingUnits && t.existingUnits > max.units;
@@ -556,16 +556,24 @@ function infoForShape(mode, t) {
             ['Existing density', cfg.hasExistingUnits ? (t.existingDensity.toFixed(1) + ' du/ac' + (nonconforming ? ' (legally non-conforming)' : '')) : notAvailable],
         ] };
     }
-    // Aggregate modes: unit totals and densities are all real area-weighted sums/means computed in build_aggregation_layers.py, not a qualitative label - except maximumDensity/maximumUnits, which are null wholesale for a city with no researched formulas yet (see genericUnknownMaximumDensity/hasMaxDensityFormulas), same as the taxlot-mode max.units check above.
-    return { title: TITLES[mode], rows: [
+    // Aggregate modes: unit totals and densities are real area-weighted sums/means. For most cities these come
+    // straight from build_aggregation_layers.py; for a city with the zone-density override table instead (see
+    // recomputeOverrideAggregates), maximumDensity/maximumUnits are recomputed live in this browser from
+    // whichever residential taxlots inside this shape currently have an override entered - a coverage caveat
+    // row is added below when that's not all of them, so the mean/total here is never silently partial.
+    var rows = [
         [ID_LABELS[mode], mode === 'zoning' ? t.polygonId : t.name],
         ['Zoning classification', mode === 'zoning' ? t.zone : 'N/A (mixed zoning)'],
         ['Area', t.acres.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' acres'],
         ['Zoned maximum density (mean)', t.maximumDensity == null ? 'Unknown' : t.maximumDensity.toFixed(1) + ' du/ac'],
         ['Zoned maximum units (total)', t.maximumUnits == null ? 'Unknown' : t.maximumUnits.toLocaleString()],
-        ['Existing units (total)', cfg.hasExistingUnits ? t.existingUnits.toLocaleString() : notAvailable],
-        ['Existing density (mean)', cfg.hasExistingUnits ? t.existingDensity.toFixed(1) + ' du/ac' : notAvailable],
-    ] };
+    ];
+    if (t._maxDensityTotalCount > 0 && t._maxDensityKnownCount < t._maxDensityTotalCount) {
+        rows.push(['Zoned max density coverage', t._maxDensityKnownCount + ' of ' + t._maxDensityTotalCount + ' residential taxlots have a zone estimate entered']);
+    }
+    rows.push(['Existing units (total)', cfg.hasExistingUnits ? t.existingUnits.toLocaleString() : notAvailable]);
+    rows.push(['Existing density (mean)', cfg.hasExistingUnits ? t.existingDensity.toFixed(1) + ' du/ac' : notAvailable]);
+    return { title: TITLES[mode], rows: rows };
 }
 
 // Density info modals, one per "Color by" option - each pair's title is set once, here, and read by both the sidebar link and its own modal header, so the two can never say something different from each other. Table content is still built directly from the same formulas object every density number on the map comes from (see buildDensityInfoModal below), so the reference tables can't drift from the real calculation either.
@@ -609,6 +617,7 @@ function buildZoneDensityOverrideTable(cfg) {
             if (val > 0) overrides[this.dataset.zone] = val;
             else delete overrides[this.dataset.zone];
             saveZoneDensityOverrides(activeCityId);
+            recomputeOverrideAggregates(); // No-op until AGGREGATE_ASSIGNMENTS exists (still loading) - loadCity's own maybeBuildAggregateAssignments call picks up whatever's in `overrides` once it does.
             redrawShapes();
         };
     });
@@ -624,7 +633,7 @@ function buildDensityInfoModal() {
         document.getElementById('existing-density-area-mean-heading').textContent = AREA_MEANS_HEADING;
         document.getElementById('existing-density-area-mean-text').textContent = areaMeansText(cfg);
     } else {
-        document.getElementById('existing-density-generic-text').textContent = 'Existing housing-unit counts are not available for ' + cfg.label + ' in this tool\'s current data sources.';
+        document.getElementById('existing-density-generic-text').textContent = 'Existing housing-unit counts are not available in this tool\'s current data sources.';
     }
 
     // A city with formulas.residentialZones (Salem, currently) gets the interactive override table instead of
@@ -723,6 +732,109 @@ function pointInPolygonRings(lng, lat, rings) {
     });
     return inside;
 }
+// Live aggregate recompute for a city with the zone-density override table instead of real formulas (Salem,
+// currently - see overridableZoneMaximumDensity/buildZoneDensityOverrideTable above): the zoning-polygon/
+// tract/block layers ship with maximumDensity/maximumUnits null (no formula to precompute them with), but once
+// someone enters a du/ac estimate for a zone, those aggregate shapes should reflect it too, not just taxlots.
+// That needs knowing which taxlots fall inside which aggregate shape - real spatial data build_aggregation_
+// layers.py has but its own output files don't carry through (only the final summed numbers do), so it's
+// redone here, once per city load. A naive taxlot-x-polygon test would be tens of thousands times a few
+// thousand - a grid index (bucket each polygon by its own bounding box, then only test a taxlot against
+// polygons sharing its cell) cuts that down to a taxlot only ever being tested against the handful of polygons
+// actually near it, matching the same bbox-prefilter idea build_aggregation_layers.py's own "grid" already
+// uses server-side.
+function buildPolygonGridIndex(polygons, cellsPerSide) {
+    var minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    var bboxes = polygons.map(function(p) {
+        var pMinLng = Infinity, pMinLat = Infinity, pMaxLng = -Infinity, pMaxLat = -Infinity;
+        p.rings.forEach(function(ring) {
+            ring.forEach(function(pt) {
+                if (pt[0] < pMinLng) pMinLng = pt[0];
+                if (pt[0] > pMaxLng) pMaxLng = pt[0];
+                if (pt[1] < pMinLat) pMinLat = pt[1];
+                if (pt[1] > pMaxLat) pMaxLat = pt[1];
+            });
+        });
+        if (pMinLng < minLng) minLng = pMinLng;
+        if (pMaxLng > maxLng) maxLng = pMaxLng;
+        if (pMinLat < minLat) minLat = pMinLat;
+        if (pMaxLat > maxLat) maxLat = pMaxLat;
+        return [pMinLng, pMinLat, pMaxLng, pMaxLat];
+    });
+    var cellW = (maxLng - minLng) / cellsPerSide || 1, cellH = (maxLat - minLat) / cellsPerSide || 1;
+    var cells = {};
+    bboxes.forEach(function(bbox, idx) {
+        var c0 = Math.max(0, Math.floor((bbox[0] - minLng) / cellW)), c1 = Math.min(cellsPerSide - 1, Math.floor((bbox[2] - minLng) / cellW));
+        var r0 = Math.max(0, Math.floor((bbox[1] - minLat) / cellH)), r1 = Math.min(cellsPerSide - 1, Math.floor((bbox[3] - minLat) / cellH));
+        for (var cx = c0; cx <= c1; cx++) {
+            for (var cy = r0; cy <= r1; cy++) {
+                var key = cx + ',' + cy;
+                (cells[key] || (cells[key] = [])).push(idx);
+            }
+        }
+    });
+    return { minLng: minLng, minLat: minLat, cellW: cellW, cellH: cellH, cellsPerSide: cellsPerSide, cells: cells };
+}
+function findContainingPolygonIndex(index, polygons, lng, lat) {
+    var cx = Math.min(index.cellsPerSide - 1, Math.max(0, Math.floor((lng - index.minLng) / index.cellW)));
+    var cy = Math.min(index.cellsPerSide - 1, Math.max(0, Math.floor((lat - index.minLat) / index.cellH)));
+    var candidates = index.cells[cx + ',' + cy];
+    if (!candidates) return -1;
+    for (var i = 0; i < candidates.length; i++) {
+        if (pointInPolygonRings(lng, lat, polygons[candidates[i]].rings)) return candidates[i];
+    }
+    return -1;
+}
+// Which aggregate shape (by index into datasets[mode]) each taxlot (by index into datasets.taxlot) falls
+// into, one array per mode - built once per city load (see maybeBuildAggregateAssignments in loadCity) and
+// reused by every subsequent recomputeOverrideAggregates() call, since an override change never moves a
+// taxlot or a polygon, only which of them already have a real number to sum.
+var AGGREGATE_ASSIGNMENTS = null;
+function buildAggregateAssignments() {
+    var taxlots = datasets.taxlot;
+    var result = {};
+    ['zoning', 'tract', 'block'].forEach(function(mode) {
+        var polys = datasets[mode];
+        var index = buildPolygonGridIndex(polys, 40);
+        var assign = new Array(taxlots.length);
+        for (var i = 0; i < taxlots.length; i++) {
+            assign[i] = findContainingPolygonIndex(index, polys, taxlots[i].lng, taxlots[i].lat);
+        }
+        result[mode] = assign;
+    });
+    AGGREGATE_ASSIGNMENTS = result;
+}
+// Recomputes maximumDensity/maximumUnits directly on each aggregate shape (overwriting the null they loaded
+// with - there's no real precomputed value to lose for a city that gets to this code path at all), plus
+// _maxDensityKnownCount/_maxDensityTotalCount for infoForShape's coverage caveat. Summed only from taxlots
+// whose zone currently has an override (see taxlotMaximumDensity) - a taxlot with no override contributes
+// neither units nor acres, rather than silently counting as 0 units on real acreage, which would drag the
+// mean down for a reason that has nothing to do with that zone's actual (unknown) density.
+function recomputeOverrideAggregates() {
+    if (!AGGREGATE_ASSIGNMENTS) return;
+    var taxlots = datasets.taxlot;
+    ['zoning', 'tract', 'block'].forEach(function(mode) {
+        var polys = datasets[mode];
+        var sums = polys.map(function() { return { units: 0, acres: 0, known: 0, total: 0 }; });
+        var assign = AGGREGATE_ASSIGNMENTS[mode];
+        for (var i = 0; i < taxlots.length; i++) {
+            var idx = assign[i];
+            if (idx < 0) continue;
+            var s = sums[idx];
+            s.total++;
+            var max = taxlotMaximumDensity(taxlots[i]);
+            if (max.units != null) { s.units += max.units; s.acres += taxlots[i].acres; s.known++; }
+        }
+        polys.forEach(function(p, idx) {
+            var s = sums[idx];
+            p.maximumUnits = s.known > 0 ? s.units : null;
+            p.maximumDensity = s.acres > 0 ? s.units / s.acres : null;
+            p._maxDensityKnownCount = s.known;
+            p._maxDensityTotalCount = s.total;
+        });
+    });
+}
+
 function haversineMiles(lat1, lng1, lat2, lng2) {
     var r = 3958.8;
     var p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
@@ -805,7 +917,7 @@ function applyCityChrome(cfg) {
 
     var existingRadio = document.getElementById('existing-color-by-radio');
     existingRadio.disabled = !cfg.hasExistingUnits;
-    existingRadio.closest('label').title = cfg.hasExistingUnits ? '' : 'Existing unit counts are not available for ' + cfg.label + '.';
+    existingRadio.closest('label').title = cfg.hasExistingUnits ? '' : 'Existing unit counts are not available.';
     if (!cfg.hasExistingUnits && colorBy === 'existing') {
         colorBy = 'maximum';
         document.querySelector('input[name=color-by][value=maximum]').checked = true;
@@ -823,6 +935,26 @@ var progressEl = document.getElementById('load-progress');
 var activeTaxlotWorker = null;
 function loadCity(cityId) {
     var loadCityId = cityId;
+    var taxlotReady = false, aggregatesReady = false;
+
+    // Runs once both halves of this same load have landed (they race - either can finish first), and only for
+    // a city with the zone-density override table (see cities.json's formulas.residentialZones) - every other
+    // city's aggregate maximumDensity/maximumUnits are already real, precomputed numbers with nothing to
+    // recompute. The spatial join itself (buildAggregateAssignments) is a few hundred thousand point-in-
+    // polygon tests - fast, but not instant, hence still worth a progress message rather than a silent freeze.
+    function maybeBuildAggregateAssignments() {
+        if (loadCityId !== activeCityId || !taxlotReady || !aggregatesReady) return;
+        if (!CITY_CONFIGS[activeCityId].formulas.residentialZones) return;
+        progressEl.textContent = 'Calculating aggregates…';
+        progressEl.classList.remove('hidden');
+        setTimeout(function() {
+            if (loadCityId !== activeCityId) return;
+            buildAggregateAssignments();
+            recomputeOverrideAggregates();
+            progressEl.classList.add('hidden');
+            redrawShapes();
+        }, 0);
+    }
 
     progressEl.textContent = 'Loading taxlots…';
     progressEl.classList.remove('hidden');
@@ -840,6 +972,8 @@ function loadCity(cityId) {
         datasets.tract = withCentroid(results[1]);
         datasets.block = withCentroid(results[2]);
         redrawShapes();
+        aggregatesReady = true;
+        maybeBuildAggregateAssignments();
     });
 
     // The taxlot dataset is much bigger (100MB+ decompressed for Portland), so it runs in its own Web Worker,
@@ -862,6 +996,8 @@ function loadCity(cityId) {
                 progressEl.classList.add('hidden');
                 redrawShapes();
                 worker.terminate();
+                taxlotReady = true;
+                maybeBuildAggregateAssignments();
             }, 0);
         } else {
             progressEl.textContent = 'Could not load taxlot data.';
@@ -879,6 +1015,7 @@ function switchCity(cityId) {
     applyCityChrome(CITY_CONFIGS[cityId]);
     closeInfoBar();
     datasets = { taxlot: [], zoning: [], block: [], tract: [] };
+    AGGREGATE_ASSIGNMENTS = null;
     buildDensityInfoModal();
     rebuildLegend();
     redrawShapes();
